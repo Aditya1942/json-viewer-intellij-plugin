@@ -36,6 +36,7 @@ import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
+import javax.swing.tree.TreeCellEditor
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Factory
@@ -690,9 +691,13 @@ class ViewerContentPanel : JPanel(BorderLayout()), Searchable {
         tree.isRootVisible = true
         tree.showsRootHandles = true
         tree.cellRenderer = cellRenderer
+        tree.isEditable = true
+        tree.cellEditor = JsonTreeCellEditor(cellRenderer)
         tree.addTreeSelectionListener {
             val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return@addTreeSelectionListener
             showProperties(node)
+            val path = tree.selectionPath ?: return@addTreeSelectionListener
+            tree.startEditingAtPath(path)
         }
 
         // ── Tree context menu ──
@@ -725,7 +730,11 @@ class ViewerContentPanel : JPanel(BorderLayout()), Searchable {
         table.tableHeader.reorderingAllowed = false
         table.columnModel.getColumn(0).preferredWidth = 120
         table.columnModel.getColumn(1).preferredWidth = 300
-        table.setDefaultEditor(Any::class.java, null)
+        val selectableEditor = DefaultCellEditor(JTextField().apply {
+            isEditable = false
+            border = JBUI.Borders.empty(2, 2)
+        })
+        table.setDefaultEditor(Any::class.java, selectableEditor)
 
         // ── Right panel: expand/collapse toolbar + table ──
         val rightPanel = JPanel(BorderLayout())
@@ -1066,6 +1075,56 @@ class JsonTreeCellRenderer : DefaultTreeCellRenderer() {
 
     private fun hex(c: JBColor) = String.format("#%02x%02x%02x", (c as Color).red, c.green, c.blue)
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    /** Plain display text for a node (used by tree cell editor for selectable copy). */
+    fun getDisplayText(node: DefaultMutableTreeNode): String {
+        val data = node.userObject as? JsonTreeNodeData ?: return node.userObject?.toString() ?: ""
+        return when {
+            data.value != null -> "${data.key} : ${data.value}"
+            data.type == JsonNodeType.OBJECT -> "${data.key} {${data.childCount}}"
+            data.type == JsonNodeType.ARRAY -> "${data.key} [${data.childCount}]"
+            else -> data.key
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Tree cell editor — selectable text field when a node is selected
+// ──────────────────────────────────────────────────────────────────────────────
+
+class JsonTreeCellEditor(
+    private val renderer: JsonTreeCellRenderer
+) : AbstractCellEditor(), TreeCellEditor {
+
+    private val textField = JTextField().apply {
+        isEditable = false
+        border = JBUI.Borders.empty(2, 1)
+        font = Font("JetBrains Mono", Font.PLAIN, 13).let { f ->
+            if (f.family == "JetBrains Mono") f else Font(Font.MONOSPACED, Font.PLAIN, 13)
+        }
+        addFocusListener(object : FocusAdapter() {
+            override fun focusLost(e: FocusEvent) {
+                if (!e.isTemporary) stopCellEditing()
+            }
+        })
+    }
+
+    override fun getTreeCellEditorComponent(
+        tree: javax.swing.JTree,
+        value: Any?,
+        isSelected: Boolean,
+        expanded: Boolean,
+        leaf: Boolean,
+        row: Int
+    ): Component {
+        val node = value as? DefaultMutableTreeNode ?: return textField
+        textField.text = renderer.getDisplayText(node)
+        textField.background = if (isSelected) UIManager.getColor("Tree.selectionBackground") ?: tree.background else tree.background
+        textField.foreground = if (isSelected) UIManager.getColor("Tree.selectionForeground") ?: tree.foreground else tree.foreground
+        return textField
+    }
+
+    override fun getCellEditorValue(): Any = textField.text
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
