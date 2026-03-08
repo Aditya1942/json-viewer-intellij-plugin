@@ -1,0 +1,49 @@
+<idea-plugin>
+    <id>com.jsonviewer</id>
+    <name>JSON Viewer</name>
+    <vendor>Aditya</vendor>
+    <description><![CDATA[
+        JSON Viewer and Formatter — Format, minify, and visualize JSON with an interactive tree view.
+        <ul>
+          <li>Multiple document tabs — work with several JSONs side by side</li>
+          <li>Cross-IDE tab persistence — tabs are shared across all JetBrains IDEs</li>
+          <li>JetBrains Cloud sync — tabs sync across machines via Settings Sync</li>
+          <li>Format any text (not just valid JSON) with smart indentation</li>
+          <li>Remove whitespace while preserving string content</li>
+          <li>Interactive tree view with color-coded types</li>
+          <li>Search with Cmd+F / Ctrl+F</li>
+          <li>Property grid for selected nodes</li>
+        </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Register the tool window -->
+        <toolWindow
+            id="JSON Viewer"
+            anchor="bottom"
+            secondary="false"
+            icon="AllIcons.FileTypes.Json"
+            factoryClass="com.jsonviewer.JsonViewerToolWindowFactory"
+        />
+
+        <!-- Application-level service for tab persistence + cloud sync -->
+        <applicationService
+            serviceImplementation="com.jsonviewer.TabStorageService"
+        />
+    </extensions>
+
+    <actions>
+        <action
+            id="JsonViewer.Open"
+            class="com.jsonviewer.OpenJsonViewerAction"
+            text="Open JSON Viewer"
+            description="Open the JSON Viewer tool window"
+            icon="AllIcons.FileTypes.Json"
+        >
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift J"/>
+        </action>
+    </actions>
+</idea-plugin>
