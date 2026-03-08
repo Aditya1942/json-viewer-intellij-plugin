@@ -2,22 +2,22 @@ package com.jsonviewer
 
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
-import com.google.gson.reflect.TypeToken
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.util.xmlb.XmlSerializerUtil
 import com.intellij.util.xmlb.annotations.Tag
 import com.intellij.util.xmlb.annotations.XCollection
-import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 // ──────────────────────────────────────────────────────
 // Data models
@@ -100,6 +100,12 @@ fun interface TabStorageListener {
 //    → Readable by any JetBrains IDE with this plugin installed
 // 3. On load: merge both sources (latest-wins per tab by updatedAt)
 // 4. On save: write to both locations
+//
+// Performance:
+// - File I/O runs on pooled background thread (never blocks EDT)
+// - Saves are coalesced via AtomicBoolean flag (no redundant writes)
+// - setActiveTab() does NOT trigger file save (deferred to next content change)
+// - Atomic file writes via temp+rename to prevent cross-IDE corruption
 // ──────────────────────────────────────────────────────
 
 @State(
@@ -113,11 +119,8 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
         private val LOG = Logger.getInstance(TabStorageService::class.java)
         private val GSON: Gson = GsonBuilder().setPrettyPrinting().create()
 
-        /**
-         * Cross-IDE shared storage directory.
-         * Uses XDG_CONFIG_HOME on Linux, ~/.config on macOS, AppData on Windows.
-         */
-        private fun getSharedDir(): Path {
+        /** Cached shared storage directory — computed once. */
+        private val SHARED_DIR: Path by lazy {
             val configHome = System.getenv("XDG_CONFIG_HOME")
                 ?: when {
                     System.getProperty("os.name").lowercase().contains("win") ->
@@ -125,10 +128,10 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
                     else ->
                         "${System.getProperty("user.home")}/.config"
                 }
-            return Path.of(configHome, "json-viewer")
+            Path.of(configHome, "json-viewer")
         }
 
-        private fun getSharedFilePath(): Path = getSharedDir().resolve("tabs.json")
+        private val SHARED_FILE_PATH: Path by lazy { SHARED_DIR.resolve("tabs.json") }
 
         fun getInstance(): TabStorageService =
             ApplicationManager.getApplication().getService(TabStorageService::class.java)
@@ -136,6 +139,12 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
 
     private var myState = JsonViewerTabsState()
     private val listeners = CopyOnWriteArrayList<TabStorageListener>()
+
+    /** Flag to coalesce multiple rapid saves into one background write. */
+    private val savePending = AtomicBoolean(false)
+
+    /** Whether the shared directory has been created (avoid repeated createDirectories calls). */
+    private var sharedDirEnsured = false
 
     // ── PersistentStateComponent ──
 
@@ -155,7 +164,7 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
                 val defaultTab = SavedTab(name = defaultTabName())
                 myState.tabs.add(defaultTab)
                 myState.activeTabId = defaultTab.id
-                saveToSharedFile()
+                scheduleSave()
             }
         }
     }
@@ -200,10 +209,17 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
         onChanged()
     }
 
+    /**
+     * Set the active tab. Does NOT trigger a file save — the active tab ID
+     * will be persisted with the next content change to avoid unnecessary I/O
+     * on rapid tab switching.
+     */
     fun setActiveTab(id: String) {
         if (myState.tabs.any { it.id == id }) {
             myState.activeTabId = id
-            onChanged()
+            myState.lastModified = System.currentTimeMillis()
+            // Only notify listeners (for UI update), but skip file save
+            notifyListeners()
         }
     }
 
@@ -249,8 +265,29 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
 
     private fun onChanged() {
         myState.lastModified = System.currentTimeMillis()
-        saveToSharedFile()
+        scheduleSave()
         notifyListeners()
+    }
+
+    /**
+     * Schedule an async save to the shared file.
+     * Uses AtomicBoolean to coalesce multiple rapid changes into one write.
+     * File I/O happens on a pooled background thread — never blocks EDT.
+     */
+    private fun scheduleSave() {
+        if (savePending.compareAndSet(false, true)) {
+            ApplicationManager.getApplication().executeOnPooledThread {
+                try {
+                    // Small delay to coalesce rapid changes
+                    Thread.sleep(500)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return@executeOnPooledThread
+                }
+                savePending.set(false)
+                saveToSharedFile()
+            }
+        }
     }
 
     private fun notifyListeners() {
@@ -267,10 +304,17 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
 
     // ── Cross-IDE shared file I/O ──
 
+    /**
+     * Write tabs to the shared cross-IDE file.
+     * Uses atomic write (temp file + rename) to prevent corruption.
+     * Runs on background thread — never call from EDT.
+     */
     private fun saveToSharedFile() {
         try {
-            val dir = getSharedDir()
-            Files.createDirectories(dir)
+            if (!sharedDirEnsured) {
+                Files.createDirectories(SHARED_DIR)
+                sharedDirEnsured = true
+            }
 
             val appName = try {
                 ApplicationManager.getApplication()?.let {
@@ -297,10 +341,19 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
             )
 
             val json = GSON.toJson(sharedFile)
+
+            // Atomic write: write to temp file, then rename
+            val tempFile = SHARED_DIR.resolve("tabs.json.tmp")
             Files.writeString(
-                getSharedFilePath(), json,
+                tempFile, json,
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
             )
+            try {
+                Files.move(tempFile, SHARED_FILE_PATH, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            } catch (_: Exception) {
+                // ATOMIC_MOVE may not be supported on all filesystems; fall back to regular move
+                Files.move(tempFile, SHARED_FILE_PATH, StandardCopyOption.REPLACE_EXISTING)
+            }
         } catch (e: Exception) {
             LOG.warn("Failed to save cross-IDE tabs file", e)
         }
@@ -308,7 +361,7 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
 
     private fun mergeFromSharedFile(): Boolean {
         try {
-            val path = getSharedFilePath()
+            val path = SHARED_FILE_PATH
             if (!Files.exists(path)) return false
 
             val json = Files.readString(path)

@@ -1,42 +1,31 @@
 package com.jsonviewer
 
-import com.google.gson.JsonElement
 import com.google.gson.JsonParser
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.DumbAware
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.JBColor
-import com.intellij.ui.JBSplitter
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextField
 import com.intellij.ui.content.ContentFactory
-import com.intellij.ui.table.JBTable
-import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.JBUI
+import com.jsonviewer.ui.SearchPanel
+import com.jsonviewer.ui.Searchable
+import com.jsonviewer.ui.TextContentPanel
+import com.jsonviewer.ui.ViewerContentPanel
 import java.awt.*
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.awt.event.*
-import java.net.URI
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
 import javax.swing.*
-import javax.swing.table.DefaultTableModel
-import javax.swing.text.DefaultHighlighter
-import javax.swing.tree.DefaultMutableTreeNode
-import javax.swing.tree.DefaultTreeCellRenderer
-import javax.swing.tree.DefaultTreeModel
-import javax.swing.tree.TreePath
-import javax.swing.tree.TreeCellEditor
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Factory
@@ -46,23 +35,10 @@ class JsonViewerToolWindowFactory : ToolWindowFactory, DumbAware {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val panel = JsonViewerPanel()
         val content = ContentFactory.getInstance().createContent(panel, "", false)
+        content.setDisposer(panel)
         toolWindow.contentManager.addContent(content)
     }
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Data models
-// ──────────────────────────────────────────────────────────────────────────────
-
-enum class JsonNodeType { OBJECT, ARRAY, STRING, NUMBER, BOOLEAN, NULL }
-
-data class JsonTreeNodeData(
-    val key: String,
-    val value: String?,
-    val type: JsonNodeType,
-    val childCount: Int = 0,
-    val element: JsonElement? = null,
-)
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Root panel — tab bar on top, header below:
@@ -78,7 +54,11 @@ data class JsonTreeNodeData(
 //  └──────────────────────────────────────────────────────┘
 // ──────────────────────────────────────────────────────────────────────────────
 
-class JsonViewerPanel : JPanel(BorderLayout()) {
+class JsonViewerPanel : JPanel(BorderLayout()), Disposable {
+
+    companion object {
+        private val LOG = Logger.getInstance(JsonViewerPanel::class.java)
+    }
 
     // ── View mode ──
     private enum class ViewMode { TEXT, VIEWER }
@@ -96,6 +76,9 @@ class JsonViewerPanel : JPanel(BorderLayout()) {
 
     // ── Shared search bar ──
     private val searchPanel = SearchPanel()
+
+    // ── Stored listener reference for cleanup ──
+    private var storageListener: TabStorageListener? = null
 
     // ── Header widgets (icons with tooltips) ──
     private val textBtn = headerToggleIconButton(AllIcons.FileTypes.Text, "Text")
@@ -212,9 +195,10 @@ class JsonViewerPanel : JPanel(BorderLayout()) {
         loadTabs()
 
         // ── Cross-IDE sync listener ──────────────────────────────────────────
-        storageService.addListener { updatedTabs, updatedActiveId ->
+        storageListener = TabStorageListener { updatedTabs, updatedActiveId ->
             SwingUtilities.invokeLater { applyTabs(updatedTabs, updatedActiveId) }
         }
+        storageService.addListener(storageListener!!)
     }
 
     // ── Tab loading / sync ───────────────────────────────────────────────────
@@ -368,7 +352,9 @@ class JsonViewerPanel : JPanel(BorderLayout()) {
             val data = clip.getData(DataFlavor.stringFlavor) as? String ?: return
             textContent.setText(data)
             clearError()
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            LOG.warn("Failed to paste from clipboard", e)
+        }
     }
 
     private fun copyToClipboard() {
@@ -505,762 +491,16 @@ class JsonViewerPanel : JPanel(BorderLayout()) {
     init {
         updateToggleState()
     }
-}
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Searchable interface — implemented by both content panels
-// ──────────────────────────────────────────────────────────────────────────────
-
-interface Searchable {
-    /** Run a search with the given query. Empty query clears results. */
-    fun applySearch(query: String)
-    /** Clear all search highlights and state. */
-    fun clearSearch()
-    /** Navigate to next (+1) or previous (-1) match. Returns (current, total). */
-    fun navigateSearch(delta: Int): Pair<Int, Int>
-    /** Returns (currentIndex 1-based, totalMatches). (0,0) means no search active. */
-    fun getMatchStatus(): Pair<Int, Int>
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Text content panel — just the textarea, no toolbar (toolbar is in header)
-// ──────────────────────────────────────────────────────────────────────────────
-
-class TextContentPanel(
-    private val onTextChanged: (String) -> Unit = {}
-) : JPanel(BorderLayout()), Searchable {
-
-    private val textArea = JTextArea()
-    private var debounceTimer: Timer? = null
-    private var suppressEvents = false
-
-    // ── Search state ──
-    private val highlightPainter = DefaultHighlighter.DefaultHighlightPainter(
-        JBColor(Color(0xFF, 0xFF, 0x00, 0x90), Color(0xBB, 0xBB, 0x00, 0x90))  // Yellow
-    )
-    private val currentMatchPainter = DefaultHighlighter.DefaultHighlightPainter(
-        JBColor(Color(0xFF, 0xA5, 0x00, 0xC0), Color(0xFF, 0x8C, 0x00, 0xC0))  // Orange for current
-    )
-    private var searchMatchRanges: List<Pair<Int, Int>> = emptyList()
-    private var currentMatchIndex = -1
-
-    init {
-        textArea.font = Font("JetBrains Mono", Font.PLAIN, 13).let { f ->
-            if (f.family == "JetBrains Mono") f else Font(Font.MONOSPACED, Font.PLAIN, 13)
-        }
-        textArea.tabSize = 2
-        textArea.lineWrap = true
-        textArea.wrapStyleWord = true
-        textArea.margin = JBUI.insets(8)
-
-        textArea.document.addDocumentListener(object : javax.swing.event.DocumentListener {
-            override fun insertUpdate(e: javax.swing.event.DocumentEvent) = scheduleNotify()
-            override fun removeUpdate(e: javax.swing.event.DocumentEvent) = scheduleNotify()
-            override fun changedUpdate(e: javax.swing.event.DocumentEvent) = scheduleNotify()
-        })
-
-        add(JBScrollPane(textArea), BorderLayout.CENTER)
-    }
-
-    fun getText(): String = textArea.text
-
-    /** Set text and fire onTextChanged. */
-    fun setText(text: String) {
-        if (textArea.text != text) {
-            textArea.text = text
-            textArea.caretPosition = 0
-        }
-    }
-
-    /** Set text without firing the storage callback (used when loading tab data). */
-    fun setTextSilently(text: String) {
-        suppressEvents = true
-        if (textArea.text != text) {
-            textArea.text = text
-            textArea.caretPosition = 0
-        }
-        suppressEvents = false
-    }
-
-    // ── Searchable implementation ──
-
-    override fun applySearch(query: String) {
-        textArea.highlighter.removeAllHighlights()
-        searchMatchRanges = emptyList()
-        currentMatchIndex = -1
-
-        if (query.isBlank()) return
-
-        val text = textArea.text
-        val upperQuery = query.uppercase()
-        val upperText = text.uppercase()
-        val matches = mutableListOf<Pair<Int, Int>>()
-        var idx = 0
-        while (idx < upperText.length) {
-            val found = upperText.indexOf(upperQuery, idx)
-            if (found < 0) break
-            matches.add(found to found + query.length)
-            idx = found + 1
-        }
-
-        searchMatchRanges = matches
-        for ((start, end) in matches) {
-            textArea.highlighter.addHighlight(start, end, highlightPainter)
-        }
-
-        if (matches.isNotEmpty()) {
-            currentMatchIndex = 0
-            highlightCurrentMatch()
-            scrollToCurrentMatch()
-        }
-    }
-
-    override fun clearSearch() {
-        textArea.highlighter.removeAllHighlights()
-        searchMatchRanges = emptyList()
-        currentMatchIndex = -1
-    }
-
-    override fun navigateSearch(delta: Int): Pair<Int, Int> {
-        if (searchMatchRanges.isEmpty()) return 0 to 0
-        currentMatchIndex = (currentMatchIndex + delta + searchMatchRanges.size) % searchMatchRanges.size
-        reapplyHighlights()
-        highlightCurrentMatch()
-        scrollToCurrentMatch()
-        return (currentMatchIndex + 1) to searchMatchRanges.size
-    }
-
-    override fun getMatchStatus(): Pair<Int, Int> {
-        if (searchMatchRanges.isEmpty()) return 0 to 0
-        return (currentMatchIndex + 1) to searchMatchRanges.size
-    }
-
-    // ── Internal highlight helpers ──
-
-    private fun reapplyHighlights() {
-        textArea.highlighter.removeAllHighlights()
-        for ((start, end) in searchMatchRanges) {
-            textArea.highlighter.addHighlight(start, end, highlightPainter)
-        }
-    }
-
-    private fun highlightCurrentMatch() {
-        if (currentMatchIndex < 0 || currentMatchIndex >= searchMatchRanges.size) return
-        val (start, end) = searchMatchRanges[currentMatchIndex]
-        textArea.highlighter.addHighlight(start, end, currentMatchPainter)
-    }
-
-    private fun scrollToCurrentMatch() {
-        if (currentMatchIndex < 0 || currentMatchIndex >= searchMatchRanges.size) return
-        val (start, _) = searchMatchRanges[currentMatchIndex]
-        textArea.caretPosition = start
-        try {
-            val rect = textArea.modelToView2D(start)?.bounds
-            if (rect != null) textArea.scrollRectToVisible(rect)
-        } catch (_: Exception) {}
-    }
-
-    private fun scheduleNotify() {
-        if (suppressEvents) return
-        debounceTimer?.stop()
-        debounceTimer = Timer(400) { onTextChanged(textArea.text) }.also {
-            it.isRepeats = false
-            it.start()
-        }
-    }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Viewer content panel — tree + property grid + search bar
-// ──────────────────────────────────────────────────────────────────────────────
-
-class ViewerContentPanel : JPanel(BorderLayout()), Searchable {
-
-    private val treeModel = DefaultTreeModel(DefaultMutableTreeNode("(empty)"))
-    private val tree = Tree(treeModel)
-    private val tableModel = DefaultTableModel(arrayOf("Name", "Value"), 0)
-    private val table = JBTable(tableModel)
-    private val cellRenderer = JsonTreeCellRenderer()
-    private var currentRoot: DefaultMutableTreeNode? = null
-    private var searchMatches: List<DefaultMutableTreeNode> = emptyList()
-    private var searchMatchSet: Set<DefaultMutableTreeNode> = emptySet()
-    private var currentMatchIndex = -1
-
-    init {
-        // ── Tree ──
-        tree.isRootVisible = true
-        tree.showsRootHandles = true
-        tree.cellRenderer = cellRenderer
-        tree.isEditable = true
-        tree.cellEditor = JsonTreeCellEditor(cellRenderer)
-        tree.addTreeSelectionListener {
-            val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return@addTreeSelectionListener
-            showProperties(node)
-            val path = tree.selectionPath ?: return@addTreeSelectionListener
-            tree.startEditingAtPath(path)
-        }
-
-        // ── Tree context menu ──
-        tree.addMouseListener(object : MouseAdapter() {
-            override fun mousePressed(e: MouseEvent) { maybeShowPopup(e) }
-            override fun mouseReleased(e: MouseEvent) { maybeShowPopup(e) }
-
-            private fun maybeShowPopup(e: MouseEvent) {
-                if (!e.isPopupTrigger) return
-                val path = tree.getPathForLocation(e.x, e.y) ?: return
-                tree.selectionPath = path
-                val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
-                val data = node.userObject as? JsonTreeNodeData ?: return
-                val expandable = data.type == JsonNodeType.OBJECT || data.type == JsonNodeType.ARRAY
-                JPopupMenu().apply {
-                    add(JMenuItem("Copy").apply { addActionListener { copyNodeValue(node) } })
-                    if (expandable) {
-                        addSeparator()
-                        add(JMenuItem("Expand").apply { addActionListener { tree.expandPath(path) } })
-                        add(JMenuItem("Collapse").apply { addActionListener { tree.collapsePath(path) } })
-                        add(JMenuItem("Expand All").apply { addActionListener { expandAllFrom(node) } })
-                        add(JMenuItem("Collapse All").apply { addActionListener { collapseAllFrom(node) } })
-                    }
-                }.show(tree, e.x, e.y)
-            }
-        })
-
-        // ── Table ──
-        table.setShowGrid(true)
-        table.tableHeader.reorderingAllowed = false
-        table.columnModel.getColumn(0).preferredWidth = 120
-        table.columnModel.getColumn(1).preferredWidth = 300
-        val selectableEditor = DefaultCellEditor(JTextField().apply {
-            isEditable = false
-            border = JBUI.Borders.empty(2, 2)
-        })
-        table.setDefaultEditor(Any::class.java, selectableEditor)
-
-        // ── Right panel: expand/collapse toolbar + table ──
-        val rightPanel = JPanel(BorderLayout())
-        val viewerToolbar = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(2), JBUI.scale(2))).apply {
-            isOpaque = false
-            border = JBUI.Borders.empty(2, 2)
-        }
-        viewerToolbar.add(viewerToolbarButton(AllIcons.Toolbar.Expand, "Expand") { doExpand() })
-        viewerToolbar.add(viewerToolbarButton(AllIcons.Toolbar.Collapse, "Collapse") { doCollapse() })
-        viewerToolbar.add(viewerToolbarButton(AllIcons.Actions.Expandall, "Expand All") { doExpandAll() })
-        viewerToolbar.add(viewerToolbarButton(AllIcons.Actions.Collapseall, "Collapse All") { doCollapseAll() })
-        rightPanel.add(viewerToolbar, BorderLayout.NORTH)
-        rightPanel.add(JBScrollPane(table), BorderLayout.CENTER)
-
-        // ── Splitter ──
-        val splitter = JBSplitter(false, 0.65f).apply {
-            firstComponent = JBScrollPane(tree)
-            secondComponent = rightPanel
-        }
-
-        add(splitter, BorderLayout.CENTER)
-    }
-
-    private fun viewerToolbarButton(icon: Icon, tooltip: String, action: () -> Unit): JButton {
-        return JButton(icon).apply {
-            toolTipText = tooltip
-            isFocusPainted = false
-            isBorderPainted = false
-            isContentAreaFilled = false
-            margin = JBUI.insets(JBUI.scale(2), JBUI.scale(4))
-            preferredSize = Dimension(JBUI.scale(24), JBUI.scale(24))
-            minimumSize = Dimension(JBUI.scale(22), JBUI.scale(22))
-            addActionListener { action() }
-        }
-    }
-
-    /** Selected node or root if none selected; null when no tree content. */
-    private fun targetNodeOrRoot(): DefaultMutableTreeNode? {
-        val selected = tree.lastSelectedPathComponent as? DefaultMutableTreeNode
-        return selected ?: currentRoot
-    }
-
-    private fun doExpand() {
-        val node = targetNodeOrRoot() ?: return
-        tree.expandPath(TreePath(node.path))
-    }
-
-    private fun doCollapse() {
-        val node = targetNodeOrRoot() ?: return
-        tree.collapsePath(TreePath(node.path))
-    }
-
-    private fun doExpandAll() {
-        val node = targetNodeOrRoot() ?: return
-        expandAllFrom(node)
-    }
-
-    private fun doCollapseAll() {
-        val node = targetNodeOrRoot() ?: return
-        collapseAllFrom(node)
-    }
-
-    fun loadJson(element: JsonElement) {
-        val root = buildTreeNode("JSON", element)
-        currentRoot = root
-        treeModel.setRoot(root)
-        treeModel.reload()
-
-        // Expand root + first level
-        tree.expandRow(0)
-        val rootPath = TreePath(root.path)
-        for (i in 0 until root.childCount) {
-            tree.expandPath(rootPath.pathByAddingChild(root.getChildAt(i)))
-        }
-
-        tableModel.rowCount = 0
-        clearSearchState()
-    }
-
-    // ── Searchable implementation ──
-
-    override fun applySearch(query: String) {
-        clearSearchState()
-
-        if (query.isBlank() || currentRoot == null) {
-            tree.repaint()
-            return
-        }
-
-        val matches = mutableListOf<DefaultMutableTreeNode>()
-        collectMatches(currentRoot!!, query.uppercase(), matches)
-        searchMatches = matches
-        searchMatchSet = matches.toSet()
-        currentMatchIndex = if (matches.isNotEmpty()) 0 else -1
-
-        // Update renderer with search query and match set for yellow highlights
-        cellRenderer.setSearchHighlight(query, searchMatchSet)
-        tree.repaint()
-
-        // Expand tree to reveal all matching nodes
-        for (match in matches) {
-            tree.expandPath(TreePath(match.path).parentPath ?: continue)
-        }
-
-        if (matches.isNotEmpty()) selectAndScrollTo(matches[0])
-    }
-
-    override fun clearSearch() {
-        clearSearchState()
-        tree.repaint()
-    }
-
-    override fun navigateSearch(delta: Int): Pair<Int, Int> {
-        if (searchMatches.isEmpty()) return 0 to 0
-        currentMatchIndex = (currentMatchIndex + delta + searchMatches.size) % searchMatches.size
-        selectAndScrollTo(searchMatches[currentMatchIndex])
-        return (currentMatchIndex + 1) to searchMatches.size
-    }
-
-    override fun getMatchStatus(): Pair<Int, Int> {
-        if (searchMatches.isEmpty()) return 0 to 0
-        return (currentMatchIndex + 1) to searchMatches.size
-    }
-
-    // ── Tree building ──────────────────────────────────────────────────────
-
-    private fun buildTreeNode(key: String, element: JsonElement): DefaultMutableTreeNode {
-        return when {
-            element.isJsonObject -> {
-                val obj = element.asJsonObject
-                DefaultMutableTreeNode(JsonTreeNodeData(key, null, JsonNodeType.OBJECT, obj.size(), element)).also { node ->
-                    for ((k, v) in obj.entrySet()) node.add(buildTreeNode(k, v))
-                }
-            }
-            element.isJsonArray -> {
-                val arr = element.asJsonArray
-                DefaultMutableTreeNode(JsonTreeNodeData(key, null, JsonNodeType.ARRAY, arr.size(), element)).also { node ->
-                    arr.forEachIndexed { i, item -> node.add(buildTreeNode("[$i]", item)) }
-                }
-            }
-            element.isJsonNull ->
-                DefaultMutableTreeNode(JsonTreeNodeData(key, "null", JsonNodeType.NULL, 0, element))
-            element.isJsonPrimitive -> {
-                val p = element.asJsonPrimitive
-                val (value, type) = when {
-                    p.isBoolean -> p.asBoolean.toString() to JsonNodeType.BOOLEAN
-                    p.isNumber -> p.asNumber.toString() to JsonNodeType.NUMBER
-                    else -> "\"${p.asString}\"" to JsonNodeType.STRING
-                }
-                DefaultMutableTreeNode(JsonTreeNodeData(key, value, type, 0, element))
-            }
-            else -> DefaultMutableTreeNode(JsonTreeNodeData(key, element.toString(), JsonNodeType.STRING, 0, element))
-        }
-    }
-
-    // ── Property grid ──────────────────────────────────────────────────────
-
-    private fun showProperties(node: DefaultMutableTreeNode) {
-        tableModel.rowCount = 0
-        val data = node.userObject as? JsonTreeNodeData ?: return
-        if (node.childCount > 0) {
-            for (i in 0 until node.childCount) {
-                val child = node.getChildAt(i) as? DefaultMutableTreeNode ?: continue
-                val cd = child.userObject as? JsonTreeNodeData ?: continue
-                val display = cd.value ?: when (cd.type) {
-                    JsonNodeType.OBJECT -> "{${cd.childCount}}"
-                    JsonNodeType.ARRAY -> "[${cd.childCount}]"
-                    else -> ""
-                }
-                tableModel.addRow(arrayOf(cd.key, display))
-            }
-        } else {
-            tableModel.addRow(arrayOf(data.key, data.value ?: ""))
-        }
-    }
-
-    private fun copyNodeValue(node: DefaultMutableTreeNode) {
-        val data = node.userObject as? JsonTreeNodeData ?: return
-        val text = data.element?.toString() ?: data.value ?: ""
-        Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
-    }
-
-    private fun expandAllFrom(node: DefaultMutableTreeNode) {
-        tree.expandPath(TreePath(node.path))
-        for (i in 0 until node.childCount) {
-            expandAllFrom(node.getChildAt(i) as DefaultMutableTreeNode)
-        }
-    }
-
-    private fun collapseAllFrom(node: DefaultMutableTreeNode) {
-        for (i in 0 until node.childCount) {
-            collapseAllFrom(node.getChildAt(i) as DefaultMutableTreeNode)
-        }
-        tree.collapsePath(TreePath(node.path))
-    }
-
-    // ── Internal search helpers ──
-
-    private fun collectMatches(node: DefaultMutableTreeNode, upperQuery: String, out: MutableList<DefaultMutableTreeNode>) {
-        val data = node.userObject as? JsonTreeNodeData
-        if (data != null) {
-            val text = if (data.value != null) "${data.key} : ${data.value}" else data.key
-            if (text.uppercase().contains(upperQuery)) out.add(node)
-        }
-        for (i in 0 until node.childCount) {
-            collectMatches(node.getChildAt(i) as DefaultMutableTreeNode, upperQuery, out)
-        }
-    }
-
-    private fun selectAndScrollTo(node: DefaultMutableTreeNode) {
-        val path = TreePath(node.path)
-        tree.expandPath(path.parentPath)
-        tree.selectionPath = path
-        tree.scrollPathToVisible(path)
-    }
-
-    private fun clearSearchState() {
-        searchMatches = emptyList()
-        searchMatchSet = emptySet()
-        currentMatchIndex = -1
-        cellRenderer.clearSearchHighlight()
-    }
-
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Tree cell renderer — colored by type
-// ──────────────────────────────────────────────────────────────────────────────
-
-class JsonTreeCellRenderer : DefaultTreeCellRenderer() {
-
-    companion object {
-        val COLOR_STRING = JBColor(Color(0x00, 0x7A, 0xCC), Color(0x61, 0xAF, 0xEF))
-        val COLOR_NUMBER = JBColor(Color(0x09, 0x86, 0x58), Color(0x98, 0xC3, 0x79))
-        val COLOR_BOOLEAN = JBColor(Color(0xAF, 0x6E, 0x0A), Color(0xE5, 0xC0, 0x7B))
-        val COLOR_NULL = JBColor(Color(0xCA, 0x39, 0x36), Color(0xE0, 0x6C, 0x75))
-        val COLOR_KEY = JBColor(Color(0x2E, 0x2E, 0x2E), Color(0xAB, 0xB2, 0xBF))
-        val COLOR_COUNT = JBColor(Color(0x88, 0x88, 0x88), Color(0x63, 0x6D, 0x83))
-        val COLOR_HIGHLIGHT_BG = JBColor(Color(0xFF, 0xFF, 0x00), Color(0xBB, 0xBB, 0x00))  // Yellow
-    }
-
-    private var searchQuery: String = ""
-    private var matchedNodes: Set<DefaultMutableTreeNode> = emptySet()
-
-    fun setSearchHighlight(query: String, matches: Set<DefaultMutableTreeNode>) {
-        searchQuery = query
-        matchedNodes = matches
-    }
-
-    fun clearSearchHighlight() {
-        searchQuery = ""
-        matchedNodes = emptySet()
-    }
-
-    override fun getTreeCellRendererComponent(
-        tree: javax.swing.JTree, value: Any?, sel: Boolean,
-        expanded: Boolean, leaf: Boolean, row: Int, hasFocus: Boolean
-    ): Component {
-        super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus)
-
-        val node = value as? DefaultMutableTreeNode ?: return this
-        val data = node.userObject as? JsonTreeNodeData ?: run {
-            text = node.userObject?.toString() ?: ""; return this
-        }
-        val isMatch = matchedNodes.contains(node)
-
-        if (sel) {
-            // Plain text when selected (selection bg makes colors hard to read)
-            text = when {
-                data.value != null -> "${data.key} : ${data.value}"
-                data.type == JsonNodeType.OBJECT -> "${data.key} {${data.childCount}}"
-                data.type == JsonNodeType.ARRAY -> "${data.key} [${data.childCount}]"
-                else -> data.key
-            }
-        } else {
-            val sb = StringBuilder("<html>")
-            sb.append("<span style='color:${hex(COLOR_KEY)}'>${highlightText(esc(data.key), isMatch)}</span>")
-            when (data.type) {
-                JsonNodeType.OBJECT -> {
-                    icon = AllIcons.Json.Object
-                    sb.append(" <span style='color:${hex(COLOR_COUNT)}'>{${data.childCount}}</span>")
-                }
-                JsonNodeType.ARRAY -> {
-                    icon = AllIcons.Json.Array
-                    sb.append(" <span style='color:${hex(COLOR_COUNT)}'>[${data.childCount}]</span>")
-                }
-                JsonNodeType.STRING -> {
-                    icon = AllIcons.Nodes.Variable
-                    sb.append(" : <span style='color:${hex(COLOR_STRING)}'>${highlightText(esc(data.value ?: ""), isMatch)}</span>")
-                }
-                JsonNodeType.NUMBER -> {
-                    icon = AllIcons.Nodes.Variable
-                    sb.append(" : <span style='color:${hex(COLOR_NUMBER)}'>${highlightText(esc(data.value ?: ""), isMatch)}</span>")
-                }
-                JsonNodeType.BOOLEAN -> {
-                    icon = AllIcons.Nodes.Variable
-                    sb.append(" : <span style='color:${hex(COLOR_BOOLEAN)}'>${highlightText(esc(data.value ?: ""), isMatch)}</span>")
-                }
-                JsonNodeType.NULL -> {
-                    icon = AllIcons.Nodes.Variable
-                    sb.append(" : <span style='color:${hex(COLOR_NULL)}'>${highlightText("null", isMatch)}</span>")
-                }
-            }
-            sb.append("</html>")
-            text = sb.toString()
-        }
-        return this
-    }
-
-    /**
-     * Wraps matching portions of [text] in a yellow-background span.
-     * [text] should already be HTML-escaped.
-     * Only highlights if this node is a match and a search query is active.
-     */
-    private fun highlightText(text: String, isMatch: Boolean): String {
-        if (!isMatch || searchQuery.isBlank()) return text
-        val escapedQuery = esc(searchQuery)
-        val upperText = text.uppercase()
-        val upperQuery = escapedQuery.uppercase()
-        if (!upperText.contains(upperQuery)) return text
-
-        val sb = StringBuilder()
-        var idx = 0
-        while (idx < text.length) {
-            val found = upperText.indexOf(upperQuery, idx)
-            if (found < 0) {
-                sb.append(text, idx, text.length)
-                break
-            }
-            sb.append(text, idx, found)
-            sb.append("<span style='background-color:${hex(COLOR_HIGHLIGHT_BG)}; color:#000000'>")
-            sb.append(text, found, found + escapedQuery.length)
-            sb.append("</span>")
-            idx = found + escapedQuery.length
-        }
-        return sb.toString()
-    }
-
-    private fun hex(c: JBColor) = String.format("#%02x%02x%02x", (c as Color).red, c.green, c.blue)
-    private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-    /** Plain display text for a node (used by tree cell editor for selectable copy). */
-    fun getDisplayText(node: DefaultMutableTreeNode): String {
-        val data = node.userObject as? JsonTreeNodeData ?: return node.userObject?.toString() ?: ""
-        return when {
-            data.value != null -> "${data.key} : ${data.value}"
-            data.type == JsonNodeType.OBJECT -> "${data.key} {${data.childCount}}"
-            data.type == JsonNodeType.ARRAY -> "${data.key} [${data.childCount}]"
-            else -> data.key
-        }
-    }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Tree cell editor — selectable text field when a node is selected
-// ──────────────────────────────────────────────────────────────────────────────
-
-class JsonTreeCellEditor(
-    private val renderer: JsonTreeCellRenderer
-) : AbstractCellEditor(), TreeCellEditor {
-
-    private val textField = JTextField().apply {
-        isEditable = false
-        border = JBUI.Borders.empty(2, 1)
-        font = Font("JetBrains Mono", Font.PLAIN, 13).let { f ->
-            if (f.family == "JetBrains Mono") f else Font(Font.MONOSPACED, Font.PLAIN, 13)
-        }
-        addFocusListener(object : FocusAdapter() {
-            override fun focusLost(e: FocusEvent) {
-                if (!e.isTemporary) stopCellEditing()
-            }
-        })
-    }
-
-    override fun getTreeCellEditorComponent(
-        tree: javax.swing.JTree,
-        value: Any?,
-        isSelected: Boolean,
-        expanded: Boolean,
-        leaf: Boolean,
-        row: Int
-    ): Component {
-        val node = value as? DefaultMutableTreeNode ?: return textField
-        textField.text = renderer.getDisplayText(node)
-        textField.background = if (isSelected) UIManager.getColor("Tree.selectionBackground") ?: tree.background else tree.background
-        textField.foreground = if (isSelected) UIManager.getColor("Tree.selectionForeground") ?: tree.foreground else tree.foreground
-        return textField
-    }
-
-    override fun getCellEditorValue(): Any = textField.text
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Search panel (bottom bar in viewer)
-// ──────────────────────────────────────────────────────────────────────────────
-
-class SearchPanel : JPanel(FlowLayout(FlowLayout.LEFT, 8, 3)) {
-
-    private val searchField = JBTextField()
-    private val statusLabel = JBLabel("")
-    private var debounceTimer: Timer? = null
-
-    var onSearch: (String) -> Unit = {}
-    var onNext: () -> Unit = {}
-    var onPrevious: () -> Unit = {}
-    var onClose: () -> Unit = {}
-
-    init {
-        border = JBUI.Borders.customLine(JBColor.border(), 1, 0, 0, 0)
-
-        add(JBLabel("Search:"))
-        searchField.preferredSize = Dimension(200, 26)
-        searchField.addActionListener { onNext() }
-        searchField.document.addDocumentListener(object : javax.swing.event.DocumentListener {
-            override fun insertUpdate(e: javax.swing.event.DocumentEvent) = debounce()
-            override fun removeUpdate(e: javax.swing.event.DocumentEvent) = debounce()
-            override fun changedUpdate(e: javax.swing.event.DocumentEvent) = debounce()
-        })
-
-        // Escape → close, Shift+Enter → previous
-        searchField.getInputMap(JComponent.WHEN_FOCUSED).apply {
-            put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "close")
-            put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, KeyEvent.SHIFT_DOWN_MASK), "prev")
-        }
-        searchField.actionMap.apply {
-            put("close", object : AbstractAction() { override fun actionPerformed(e: ActionEvent) { onClose() } })
-            put("prev", object : AbstractAction() { override fun actionPerformed(e: ActionEvent) { onPrevious() } })
-        }
-
-        add(searchField)
-        add(statusLabel)
-
-        add(navBtn("▼ Next") { onNext() })
-        add(navBtn("▲ Prev") { onPrevious() })
-        add(navBtn("✕") { onClose() })
-    }
-
-    fun getQuery(): String = searchField.text
-
-    fun setQuery(query: String) {
-        if (searchField.text != query) {
-            searchField.text = query
-        }
-    }
-
-    fun focusInput() {
-        searchField.requestFocusInWindow()
-        searchField.selectAll()
-    }
-
-    fun updateStatus(current: Int, total: Int) {
-        statusLabel.text = when {
-            searchField.text.isBlank() -> ""
-            total == 0 -> "Not found"
-            else -> "$current of $total"
-        }
-        statusLabel.foreground = if (total == 0 && searchField.text.isNotBlank()) JBColor.RED else JBColor.foreground()
-    }
-
-    private fun debounce() {
-        debounceTimer?.stop()
-        debounceTimer = Timer(150) { onSearch(searchField.text) }.also {
-            it.isRepeats = false; it.start()
-        }
-    }
-
-    private fun navBtn(text: String, action: () -> Unit): JButton {
-        return JButton(text).apply {
-            isFocusPainted = false
-            margin = JBUI.insets(2, 6)
-            font = font.deriveFont(Font.PLAIN, 11f)
-            addActionListener { action() }
-        }
-    }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Text processing utilities
-// ──────────────────────────────────────────────────────────────────────────────
-
-object TextProcessor {
-
-    /** Pretty-print. Works on any text — character-level state machine. */
-    fun format(text: String): String {
-        val input = text.replace("\r", "").replace("\n", " ")
-        val out = StringBuilder()
-        var depth = 0
-        var inString: Char? = null
-
-        for (i in input.indices) {
-            val ch = input[i]
-            when {
-                inString != null && ch == inString && (i == 0 || input[i - 1] != '\\') -> {
-                    inString = null; out.append(ch)
-                }
-                inString != null -> out.append(ch)
-                ch == '"' || ch == '\'' -> { inString = ch; out.append(ch) }
-                ch == ' ' || ch == '\t' -> { /* skip */ }
-                ch == ':' -> out.append(": ")
-                ch == ',' -> { out.append(",\n"); out.append("  ".repeat(depth)) }
-                ch == '[' || ch == '{' -> { depth++; out.append(ch).append("\n").append("  ".repeat(depth)) }
-                ch == ']' || ch == '}' -> { depth = maxOf(0, depth - 1); out.append("\n").append("  ".repeat(depth)).append(ch) }
-                else -> out.append(ch)
-            }
-        }
-        return out.toString()
-    }
-
-    /** Strip all whitespace outside quoted strings. */
-    fun removeWhiteSpace(text: String): String {
-        val input = text.replace("\r", "").replace("\n", " ")
-        val out = StringBuilder()
-        var inString: Char? = null
-
-        for (i in input.indices) {
-            val ch = input[i]
-            when {
-                inString != null && ch == inString && (i == 0 || input[i - 1] != '\\') -> {
-                    inString = null; out.append(ch)
-                }
-                inString != null -> out.append(ch)
-                ch == '"' || ch == '\'' -> { inString = ch; out.append(ch) }
-                ch == ' ' || ch == '\t' -> { /* skip */ }
-                else -> out.append(ch)
-            }
-        }
-        return out.toString()
+    // ── Disposable — clean up listeners and timers ─────────────────────────
+
+    override fun dispose() {
+        // Remove storage listener to prevent memory leak
+        storageListener?.let { storageService.removeListener(it) }
+        storageListener = null
+        // Stop debounce timers to prevent firing after dispose
+        searchPanel.stopTimers()
+        // Dispose the editor component (releases IntelliJ Editor resources)
+        Disposer.dispose(textContent)
     }
 }

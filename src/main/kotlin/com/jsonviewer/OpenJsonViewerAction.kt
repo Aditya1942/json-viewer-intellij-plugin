@@ -1,5 +1,6 @@
 package com.jsonviewer
 
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.wm.ToolWindowManager
@@ -9,6 +10,8 @@ import com.intellij.openapi.wm.ToolWindowManager
  * Accessible via Tools menu or Ctrl+Shift+J shortcut.
  */
 class OpenJsonViewerAction : AnAction() {
+
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
