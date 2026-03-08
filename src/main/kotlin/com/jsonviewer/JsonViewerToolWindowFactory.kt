@@ -60,6 +60,7 @@ data class JsonTreeNodeData(
     val value: String?,
     val type: JsonNodeType,
     val childCount: Int = 0,
+    val element: JsonElement? = null,
 )
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -704,8 +705,17 @@ class ViewerContentPanel : JPanel(BorderLayout()), Searchable {
                 val path = tree.getPathForLocation(e.x, e.y) ?: return
                 tree.selectionPath = path
                 val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
+                val data = node.userObject as? JsonTreeNodeData ?: return
+                val expandable = data.type == JsonNodeType.OBJECT || data.type == JsonNodeType.ARRAY
                 JPopupMenu().apply {
-                    add(JMenuItem("Copy value").apply { addActionListener { copyNodeValue(node) } })
+                    add(JMenuItem("Copy").apply { addActionListener { copyNodeValue(node) } })
+                    if (expandable) {
+                        addSeparator()
+                        add(JMenuItem("Expand").apply { addActionListener { tree.expandPath(path) } })
+                        add(JMenuItem("Collapse").apply { addActionListener { tree.collapsePath(path) } })
+                        add(JMenuItem("Expand All").apply { addActionListener { expandAllFrom(node) } })
+                        add(JMenuItem("Collapse All").apply { addActionListener { collapseAllFrom(node) } })
+                    }
                 }.show(tree, e.x, e.y)
             }
         })
@@ -717,13 +727,65 @@ class ViewerContentPanel : JPanel(BorderLayout()), Searchable {
         table.columnModel.getColumn(1).preferredWidth = 300
         table.setDefaultEditor(Any::class.java, null)
 
+        // ── Right panel: expand/collapse toolbar + table ──
+        val rightPanel = JPanel(BorderLayout())
+        val viewerToolbar = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(2), JBUI.scale(2))).apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(2, 2)
+        }
+        viewerToolbar.add(viewerToolbarButton(AllIcons.Toolbar.Expand, "Expand") { doExpand() })
+        viewerToolbar.add(viewerToolbarButton(AllIcons.Toolbar.Collapse, "Collapse") { doCollapse() })
+        viewerToolbar.add(viewerToolbarButton(AllIcons.Actions.Expandall, "Expand All") { doExpandAll() })
+        viewerToolbar.add(viewerToolbarButton(AllIcons.Actions.Collapseall, "Collapse All") { doCollapseAll() })
+        rightPanel.add(viewerToolbar, BorderLayout.NORTH)
+        rightPanel.add(JBScrollPane(table), BorderLayout.CENTER)
+
         // ── Splitter ──
         val splitter = JBSplitter(false, 0.65f).apply {
             firstComponent = JBScrollPane(tree)
-            secondComponent = JBScrollPane(table)
+            secondComponent = rightPanel
         }
 
         add(splitter, BorderLayout.CENTER)
+    }
+
+    private fun viewerToolbarButton(icon: Icon, tooltip: String, action: () -> Unit): JButton {
+        return JButton(icon).apply {
+            toolTipText = tooltip
+            isFocusPainted = false
+            isBorderPainted = false
+            isContentAreaFilled = false
+            margin = JBUI.insets(JBUI.scale(2), JBUI.scale(4))
+            preferredSize = Dimension(JBUI.scale(24), JBUI.scale(24))
+            minimumSize = Dimension(JBUI.scale(22), JBUI.scale(22))
+            addActionListener { action() }
+        }
+    }
+
+    /** Selected node or root if none selected; null when no tree content. */
+    private fun targetNodeOrRoot(): DefaultMutableTreeNode? {
+        val selected = tree.lastSelectedPathComponent as? DefaultMutableTreeNode
+        return selected ?: currentRoot
+    }
+
+    private fun doExpand() {
+        val node = targetNodeOrRoot() ?: return
+        tree.expandPath(TreePath(node.path))
+    }
+
+    private fun doCollapse() {
+        val node = targetNodeOrRoot() ?: return
+        tree.collapsePath(TreePath(node.path))
+    }
+
+    private fun doExpandAll() {
+        val node = targetNodeOrRoot() ?: return
+        expandAllFrom(node)
+    }
+
+    private fun doCollapseAll() {
+        val node = targetNodeOrRoot() ?: return
+        collapseAllFrom(node)
     }
 
     fun loadJson(element: JsonElement) {
@@ -794,18 +856,18 @@ class ViewerContentPanel : JPanel(BorderLayout()), Searchable {
         return when {
             element.isJsonObject -> {
                 val obj = element.asJsonObject
-                DefaultMutableTreeNode(JsonTreeNodeData(key, null, JsonNodeType.OBJECT, obj.size())).also { node ->
+                DefaultMutableTreeNode(JsonTreeNodeData(key, null, JsonNodeType.OBJECT, obj.size(), element)).also { node ->
                     for ((k, v) in obj.entrySet()) node.add(buildTreeNode(k, v))
                 }
             }
             element.isJsonArray -> {
                 val arr = element.asJsonArray
-                DefaultMutableTreeNode(JsonTreeNodeData(key, null, JsonNodeType.ARRAY, arr.size())).also { node ->
+                DefaultMutableTreeNode(JsonTreeNodeData(key, null, JsonNodeType.ARRAY, arr.size(), element)).also { node ->
                     arr.forEachIndexed { i, item -> node.add(buildTreeNode("[$i]", item)) }
                 }
             }
             element.isJsonNull ->
-                DefaultMutableTreeNode(JsonTreeNodeData(key, "null", JsonNodeType.NULL))
+                DefaultMutableTreeNode(JsonTreeNodeData(key, "null", JsonNodeType.NULL, 0, element))
             element.isJsonPrimitive -> {
                 val p = element.asJsonPrimitive
                 val (value, type) = when {
@@ -813,9 +875,9 @@ class ViewerContentPanel : JPanel(BorderLayout()), Searchable {
                     p.isNumber -> p.asNumber.toString() to JsonNodeType.NUMBER
                     else -> "\"${p.asString}\"" to JsonNodeType.STRING
                 }
-                DefaultMutableTreeNode(JsonTreeNodeData(key, value, type))
+                DefaultMutableTreeNode(JsonTreeNodeData(key, value, type, 0, element))
             }
-            else -> DefaultMutableTreeNode(JsonTreeNodeData(key, element.toString(), JsonNodeType.STRING))
+            else -> DefaultMutableTreeNode(JsonTreeNodeData(key, element.toString(), JsonNodeType.STRING, 0, element))
         }
     }
 
@@ -842,12 +904,22 @@ class ViewerContentPanel : JPanel(BorderLayout()), Searchable {
 
     private fun copyNodeValue(node: DefaultMutableTreeNode) {
         val data = node.userObject as? JsonTreeNodeData ?: return
-        val text = data.value ?: when (data.type) {
-            JsonNodeType.OBJECT -> "{${data.childCount} properties}"
-            JsonNodeType.ARRAY -> "[${data.childCount} items]"
-            else -> ""
-        }
+        val text = data.element?.toString() ?: data.value ?: ""
         Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
+    }
+
+    private fun expandAllFrom(node: DefaultMutableTreeNode) {
+        tree.expandPath(TreePath(node.path))
+        for (i in 0 until node.childCount) {
+            expandAllFrom(node.getChildAt(i) as DefaultMutableTreeNode)
+        }
+    }
+
+    private fun collapseAllFrom(node: DefaultMutableTreeNode) {
+        for (i in 0 until node.childCount) {
+            collapseAllFrom(node.getChildAt(i) as DefaultMutableTreeNode)
+        }
+        tree.collapsePath(TreePath(node.path))
     }
 
     // ── Internal search helpers ──
