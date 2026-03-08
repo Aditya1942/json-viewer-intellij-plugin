@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <rect width="40" height="40" fill="none"/>
+  <!-- Document with curly-brace hint (JSON); visible on light and dark (mid tone) -->
+  <g transform="translate(8, 6)" stroke="#5c6370" stroke-width="1.8" fill="none" stroke-linecap="round">
+    <path d="M4 2v20c0 2 2 4 4 4h8c2 0 4-2 4-4V10l-6-6H8c-2 0-4 2-4 4z"/>
+    <path d="M16 4v6h6"/>
+    <path d="M10 14h4M10 18h8"/>
+    <path d="M8 22c-1.5 0-2 .8-2 2s.5 2 2 2M16 22c1.5 0 2 .8 2 2s-.5 2-2 2"/>
+  </g>
+</svg>

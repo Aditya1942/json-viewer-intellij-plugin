@@ -34,6 +34,7 @@ data class SavedTab(
     @Tag("jsonText") var jsonText: String = "",
     @Tag("createdAt") var createdAt: Long = System.currentTimeMillis(),
     @Tag("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
+    @Tag("expandedPathKeys") var expandedPathKeys: String = "",
 ) {
     // No-arg constructor required for XML deserialization
     constructor() : this(
@@ -41,7 +42,8 @@ data class SavedTab(
         name = "Untitled",
         jsonText = "",
         createdAt = System.currentTimeMillis(),
-        updatedAt = System.currentTimeMillis()
+        updatedAt = System.currentTimeMillis(),
+        expandedPathKeys = ""
     )
 }
 
@@ -189,10 +191,11 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
     private fun defaultTabName(): String =
         LocalDateTime.now().format(DateTimeFormatter.ofPattern("MMM dd, yyyy h:mm a", Locale.US))
 
-    fun updateTab(id: String, name: String? = null, jsonText: String? = null) {
+    fun updateTab(id: String, name: String? = null, jsonText: String? = null, expandedPathKeys: String? = null) {
         val tab = myState.tabs.find { it.id == id } ?: return
         if (name != null) tab.name = name
         if (jsonText != null) tab.jsonText = jsonText
+        if (expandedPathKeys != null) tab.expandedPathKeys = expandedPathKeys
         tab.updatedAt = System.currentTimeMillis()
         onChanged()
     }

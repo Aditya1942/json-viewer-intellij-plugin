@@ -27,22 +27,26 @@ kotlin {
 }
 
 intellijPlatform {
+    publishing {
+        token.set(providers.gradleProperty("intellijPlatformPublishingToken"))
+    }
     pluginConfiguration {
         id = "com.jsonviewer"
         name = "JSON Viewer"
         version = project.version.toString()
         description = """
-            JSON Viewer and Formatter — Format, minify, and visualize JSON with an interactive tree view.
+            JSON Viewer and Notes for all JetBrains IDEs — format, minify, and visualize JSON with an interactive tree view. Keep multiple JSON snippets in persistent, synced tabs.
             <ul>
-              <li>Multiple document tabs — work with several JSONs side by side</li>
-              <li>Cross-IDE tab persistence — tabs are shared across all JetBrains IDEs</li>
-              <li>JetBrains Cloud sync — tabs sync across machines via Settings Sync</li>
-              <li>Format any text (not just valid JSON) with smart indentation</li>
-              <li>Remove whitespace while preserving string content</li>
-              <li>Interactive tree view with color-coded types</li>
-              <li>Search with Cmd+F / Ctrl+F</li>
-              <li>Property grid for selected nodes</li>
+              <li><b>Notes-style tabs</b> — multiple document tabs; work with several JSONs side by side; names and content persist</li>
+              <li><b>Cross-IDE</b> — tabs shared across IntelliJ, PyCharm, WebStorm, GoLand, Rider, and other JetBrains IDEs</li>
+              <li><b>Settings Sync</b> — tabs sync across machines via JetBrains Settings Sync</li>
+              <li><b>Format & minify</b> — pretty-print or remove whitespace; works on any text, preserves strings</li>
+              <li><b>Tree view</b> — interactive tree with color-coded types; expand/collapse all; copy value from context menu</li>
+              <li><b>Property grid</b> — inspect selected node key/value or children in a side panel</li>
+              <li><b>Search</b> — Cmd+F / Ctrl+F with next/previous and highlights in both text and tree</li>
+              <li><b>Paste / Copy</b> — quick clipboard actions in the toolbar</li>
             </ul>
+            <p>Inspired by <a href="https://jsonviewer.stack.hu/">Online JSON Viewer (jsonviewer.stack.hu)</a>.</p>
         """.trimIndent()
 
         ideaVersion {
