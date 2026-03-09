@@ -1,10 +1,10 @@
 <idea-plugin>
     <id>com.jsonviewer</id>
-    <name>JSON Viewer</name>
+    <name>JSON Notes</name>
     <!-- Required for Marketplace approval: use a valid, functional website and email -->
-    <vendor url="https://github.com" email="your-email@example.com">Aditya</vendor>
+    <vendor url="https://github.com/Aditya1942" email="parmaraditya1942@gmail.com">Aditya</vendor>
     <description><![CDATA[
-        JSON Viewer and Notes for all JetBrains IDEs — format, minify, and visualize JSON with an interactive tree view. Keep multiple JSON snippets in persistent, synced tabs.
+        JSON Notes for all JetBrains IDEs — format, minify, and visualize JSON with an interactive tree view. Keep multiple JSON snippets in persistent, synced tabs.
         <ul>
           <li><b>Notes-style tabs</b> — multiple document tabs; work with several JSONs side by side; names and content persist</li>
           <li><b>Cross-IDE</b> — tabs shared across IntelliJ, PyCharm, WebStorm, GoLand, Rider, and other JetBrains IDEs</li>
@@ -32,7 +32,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <!-- Register the tool window -->
         <toolWindow
-            id="JSON Viewer"
+            id="JSON Notes"
             anchor="bottom"
             secondary="false"
             icon="AllIcons.FileTypes.Json"
@@ -49,8 +49,8 @@
         <action
             id="JsonViewer.Open"
             class="com.jsonviewer.OpenJsonViewerAction"
-            text="Open JSON Viewer"
-            description="Open the JSON Viewer tool window"
+            text="Open JSON Notes"
+            description="Open the JSON Notes tool window"
             icon="AllIcons.FileTypes.Json"
         >
             <add-to-group group-id="ToolsMenu" anchor="last"/>

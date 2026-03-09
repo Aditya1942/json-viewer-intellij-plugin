@@ -3,6 +3,9 @@ build/
 .gradle/
 .intellijPlatform/
 
+# Local publish token (never commit)
+publish.properties
+
 # IDE
 .idea/
 *.iml

@@ -1,4 +1,4 @@
-# JSON Viewer
+# JSON Notes
 
 A **JSON viewer and notes** plugin for **all JetBrains IDEs** (IntelliJ IDEA, PyCharm, WebStorm, GoLand, Rider, PhpStorm, RubyMine, etc.). View, format, minify, and organize JSON in a dedicated tool window with persistent tabs that sync across IDEs and machines.
 
@@ -21,7 +21,7 @@ A **JSON viewer and notes** plugin for **all JetBrains IDEs** (IntelliJ IDEA, Py
 - **Multiple tabs** — Work with several JSON documents side by side; each tab has a name and stores JSON text.
 - **Persistent tabs** — Tabs are saved automatically and restored when you reopen the IDE.
 - **Cross-IDE tabs** — Tabs are shared across all JetBrains IDEs on the same machine via a shared file (`~/.config/json-viewer/tabs.json` on Linux/macOS, `%APPDATA%\json-viewer\tabs.json` on Windows).
-- **JetBrains Settings Sync** — When you enable [Settings Sync](https://www.jetbrains.com/help/idea/settings-sync.html), your JSON Viewer tabs sync across machines.
+- **JetBrains Settings Sync** — When you enable [Settings Sync](https://www.jetbrains.com/help/idea/settings-sync.html), your JSON Notes tabs sync across machines.
 - **Tree expansion state** — Which nodes you expanded in the tree is remembered per tab and restored when you switch back.
 
 ### Search
@@ -35,14 +35,14 @@ A **JSON viewer and notes** plugin for **all JetBrains IDEs** (IntelliJ IDEA, Py
 
 ### Navigation
 - **Tab bar** — Previous / Next / New tab / Delete tab; tab title shows `[current/total] Tab name`.
-- **Shortcut** — **Ctrl+Shift+J** (Windows/Linux) or **Cmd+Shift+J** (macOS) opens the JSON Viewer tool window. Also available under **Tools → Open JSON Viewer**.
+- **Shortcut** — **Ctrl+Shift+J** (Windows/Linux) or **Cmd+Shift+J** (macOS) opens the JSON Notes tool window. Also available under **Tools → Open JSON Notes**.
 
 ---
 
 ## Installation
 
 1. In your JetBrains IDE: **Settings/Preferences → Plugins → Marketplace**.
-2. Search for **JSON Viewer**.
+2. Search for **JSON Notes**.
 3. Install and restart the IDE.
 
 Or install from disk: **Settings → Plugins → ⚙️ → Install Plugin from Disk** and select the built `*.zip` from the project’s `build/distributions/` folder.
@@ -51,7 +51,7 @@ Or install from disk: **Settings → Plugins → ⚙️ → Install Plugin from 
 
 ## How to use
 
-1. Open the tool window: **Tools → Open JSON Viewer** or **Ctrl+Shift+J** / **Cmd+Shift+J**.
+1. Open the tool window: **Tools → Open JSON Notes** or **Ctrl+Shift+J** / **Cmd+Shift+J**.
 2. Paste or type JSON in the text area (Text mode).
 3. Use **Format** / **Minify** as needed.
 4. Switch to **Viewer** to see the tree; select nodes to inspect them in the property grid.

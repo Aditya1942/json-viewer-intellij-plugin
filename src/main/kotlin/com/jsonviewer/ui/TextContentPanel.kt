@@ -83,7 +83,7 @@ class TextContentPanel(
                     scheduleDetection()
                 }
             }
-        })
+        }, this)
 
         add(editor.component, BorderLayout.CENTER)
     }

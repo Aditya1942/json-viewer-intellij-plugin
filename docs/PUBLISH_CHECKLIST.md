@@ -1,6 +1,6 @@
 # JetBrains Marketplace — Publish Checklist
 
-Use this checklist before uploading the JSON Viewer plugin. All items are required for approval unless marked optional.
+Use this checklist before uploading the JSON Notes plugin. All items are required for approval unless marked optional.
 
 ---
 
@@ -21,7 +21,7 @@ Use this checklist before uploading the JSON Viewer plugin. All items are requir
 
 ### 3. Plugin name & description
 
-- [x] **Name**: "JSON Viewer" — short, title case, no "Plugin"/"JetBrains", &lt; 30 chars.
+- [x] **Name**: "JSON Notes" — short, title case, no "Plugin"/"JetBrains", &lt; 30 chars.
 - [x] **Description**: English, clear value proposition; first ~40 characters work as card summary. No marketing fluff. Bullet list present.
 
 ### 4. Change notes
@@ -59,7 +59,7 @@ Use this checklist before uploading the JSON Viewer plugin. All items are requir
 ## After upload (on plugin admin page)
 
 - [ ] **Media**: Add at least one screenshot (recommended min 1200×760). Shows the tool window / tree view in the IDE.
-- [ ] **Getting started** (optional): Short steps to open the tool (e.g. Tools → Open JSON Viewer or shortcut).
+- [ ] **Getting started** (optional): Short steps to open the tool (e.g. Tools → Open JSON Notes or shortcut).
 - [ ] **Links**: Add issue tracker / source code / documentation if you have them. All links must be valid and reachable.
 
 ---

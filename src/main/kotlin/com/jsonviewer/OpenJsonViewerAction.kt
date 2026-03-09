@@ -6,7 +6,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.wm.ToolWindowManager
 
 /**
- * Action to open the JSON Viewer tool window.
+ * Action to open the JSON Notes tool window.
  * Accessible via Tools menu or Ctrl+Shift+J shortcut.
  */
 class OpenJsonViewerAction : AnAction() {
@@ -15,7 +15,7 @@ class OpenJsonViewerAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("JSON Viewer")
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("JSON Notes")
         toolWindow?.show()
     }
 

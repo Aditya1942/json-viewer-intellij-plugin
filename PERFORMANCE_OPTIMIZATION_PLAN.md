@@ -1,8 +1,8 @@
-# JSON Viewer Plugin — Performance Optimization Implementation Plan
+# JSON Notes Plugin — Performance Optimization Implementation Plan
 
 ## Summary
 
-Analysis of the JetBrains JSON Viewer plugin for IntelliJ Platform API compliance, lifecycle, threading, persistence, and performance patterns. Below: concise numbered plan, assumptions, risks, verification steps, and findings with file:line references.
+Analysis of the JetBrains JSON Notes plugin for IntelliJ Platform API compliance, lifecycle, threading, persistence, and performance patterns. Below: concise numbered plan, assumptions, risks, verification steps, and findings with file:line references.
 
 ---
 

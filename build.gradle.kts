@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "1.9.21"
@@ -5,7 +7,7 @@ plugins {
 }
 
 group = "com.jsonviewer"
-version = "1.0.0"
+version = "1.0.1"
 
 repositories {
     mavenCentral()
@@ -18,7 +20,6 @@ dependencies {
     intellijPlatform {
         // Works with IntelliJ IDEA Community 2023.3+
         intellijIdeaCommunity("2023.3")
-        instrumentationTools()
     }
 }
 
@@ -28,14 +29,24 @@ kotlin {
 
 intellijPlatform {
     publishing {
-        token.set(providers.gradleProperty("intellijPlatformPublishingToken"))
+        token.set(
+            providers.gradleProperty("intellijPlatformPublishingToken")
+                .orElse(providers.provider {
+                    val f = rootProject.file("publish.properties")
+                    if (f.exists()) {
+                        val props = Properties()
+                        f.reader().use { props.load(it) }
+                        props.getProperty("intellijPlatformPublishingToken") ?: ""
+                    } else ""
+                })
+        )
     }
     pluginConfiguration {
         id = "com.jsonviewer"
-        name = "JSON Viewer"
+        name = "JSON Notes"
         version = project.version.toString()
         description = """
-            JSON Viewer and Notes for all JetBrains IDEs — format, minify, and visualize JSON with an interactive tree view. Keep multiple JSON snippets in persistent, synced tabs.
+            JSON Notes for all JetBrains IDEs — format, minify, and visualize JSON with an interactive tree view. Keep multiple JSON snippets in persistent, synced tabs.
             <ul>
               <li><b>Notes-style tabs</b> — multiple document tabs; work with several JSONs side by side; names and content persist</li>
               <li><b>Cross-IDE</b> — tabs shared across IntelliJ, PyCharm, WebStorm, GoLand, Rider, and other JetBrains IDEs</li>

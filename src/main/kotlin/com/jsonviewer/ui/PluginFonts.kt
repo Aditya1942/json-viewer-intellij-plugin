@@ -3,7 +3,7 @@ package com.jsonviewer.ui
 import java.awt.Font
 
 /**
- * Shared font constants for the JSON Viewer plugin.
+ * Shared font constants for the JSON Notes plugin.
  * Avoids creating duplicate Font objects in multiple components.
  */
 object PluginFonts {

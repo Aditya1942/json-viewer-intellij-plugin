@@ -119,7 +119,7 @@ class JsonViewerPanel : JPanel(BorderLayout()), Disposable {
             isOpaque = false
             border = JBUI.Borders.emptyRight(JBUI.scale(6))
         }
-        headerRight.add(actionIconButton(AllIcons.Actions.Menu_paste, "Paste") { pasteFromClipboard() })
+        headerRight.add(actionIconButton(AllIcons.Actions.MenuPaste, "Paste") { pasteFromClipboard() })
         headerRight.add(actionIconButton(AllIcons.Actions.Copy, "Copy") { copyToClipboard() })
         headerRight.add(actionIconButton(AllIcons.Diff.MagicResolveToolbar, "Format") { formatText() })
         headerRight.add(actionIconButton(minifyIcon(), "Minify") { minifyText() })
