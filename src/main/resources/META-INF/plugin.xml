@@ -22,16 +22,11 @@
     <change-notes><![CDATA[
         <p><b>1.0.3</b> (2026-03-22)</p>
         <ul>
-            <li><b>Bug fix</b> — main editor: writable virtual file so <strong>Undo / Redo</strong> works; <code>JsonNotesFileEditor</code> now integrates as a proper <code>TextEditor</code> with IDE data providers</li>
-            <li><b>Stability</b> — shared document between tool window and editor; safer threading and caret updates in the text panel when content changes</li>
-        </ul>
-        <p><b>1.0.2</b> (2026-03-22)</p>
-        <ul>
-            <li><b>Editor integration</b> — open JSON Notes in the main editor via <strong>Tools → Open JSON Notes in Editor</strong> (shortcut: Ctrl+Shift+Alt+J, ⌃⇧⌥J on macOS)</li>
+            <li><b>Main editor</b> — <strong>Tools → Open JSON Notes in Editor</strong> (Ctrl+Shift+Alt+J, ⌃⇧⌥J on macOS); <strong>Undo / Redo</strong> fixed with a writable document; full <code>TextEditor</code> integration and shared document between the tool window and editor</li>
             <li><b>Tabs</b> — confirmation before closing a tab; clearer tab bar and navigation</li>
-            <li><b>Search</b> — improved find bar with debounced search and smoother highlights in text and tree</li>
-            <li><b>Appearance</b> — font family/size in JSON Notes settings; optional hiding of toolbar actions; refined layout and hover feedback</li>
-            <li><b>Stability</b> — safer document/tree access on background threads; updated Kotlin and platform targets</li>
+            <li><b>Search</b> — debounced find with highlights in text and tree</li>
+            <li><b>Appearance</b> — font family/size in settings; optional hiding of toolbar actions; layout and hover polish</li>
+            <li><b>Stability</b> — safer document/tree access on background threads; safer text updates and caret handling when content changes</li>
         </ul>
         <p><b>1.0.1</b> and earlier</p>
         <ul>

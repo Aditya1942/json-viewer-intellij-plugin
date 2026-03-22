@@ -6,18 +6,13 @@ A **JSON viewer and notes** plugin for **all JetBrains IDEs** (IntelliJ IDEA, Py
 
 ## What’s new in 1.0.3
 
-- **Bug fix: Undo/Redo in main editor** — JSON Notes opened via **Tools → Open JSON Notes in Editor** now uses a writable document so undo and redo behave correctly.
-- **IDE integration** — the editor tab is wired as a full **TextEditor** with standard IDE editing support; tool window and editor share the document where appropriate.
-- **Stability** — safer text updates and caret handling when the buffer changes.
+- **Main editor** — **Tools → Open JSON Notes in Editor** (**Ctrl+Shift+Alt+J**, **⌃⇧⌥J** on macOS); **Undo / Redo** works with a writable document; full **TextEditor** integration and a shared document between the tool window and editor.
+- **Tabs** — confirm before closing a tab; clearer tab bar and navigation.
+- **Search** — debounced find with highlights in text and tree.
+- **Appearance** — font family/size in settings; optional toolbar actions; layout and hover polish.
+- **Stability** — safer document/tree access on background threads; safer text updates and caret handling when content changes.
 
-## What was new in 1.0.2
-
-- **Open in main editor** — **Tools → Open JSON Notes in Editor** (default shortcut **Ctrl+Shift+Alt+J**, **⌃⇧⌥J** on macOS) for the same JSON Notes experience in the editor area.
-- **Safer tabs** — confirm before deleting a tab; tab bar and navigation tweaks.
-- **Better search** — debounced find with clearer highlights in text and tree.
-- **Look & feel** — font family/size in JSON Notes settings; optional toolbar visibility; UI polish and stability fixes.
-
-Full history: [CHANGELOG.md](CHANGELOG.md). When publishing to [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/30568-json-notes), paste the same bullets into **What’s new** (or rely on `plugin.xml` change notes from the build).
+Full history: [CHANGELOG.md](CHANGELOG.md). Marketplace **What’s new** matches `plugin.xml` change notes from the build.
 
 ---
 
