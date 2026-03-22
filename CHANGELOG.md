@@ -1,0 +1,30 @@
+# Changelog
+
+All notable changes to **JSON Notes** are documented here. The version in `build.gradle.kts` and the `<change-notes>` in `plugin.xml` should stay aligned with Marketplace releases.
+
+## [1.0.2] — 2026-03-22
+
+### Added
+- Open JSON Notes in the **main editor** area (`JsonNotesFileEditor`, virtual file per project), with action **Tools → Open JSON Notes in Editor** and shortcut **Ctrl+Shift+Alt+J** (⌘⇧⌥J on macOS).
+- **JsonViewerUiSettings** — application-level font family/size for the JSON Notes editor.
+- Settings to **hide selected toolbar actions** for a cleaner tool window.
+- **Search panel** improvements with debounced search; **IconButtonHover** and visual separator tweaks.
+
+### Changed
+- Tab bar: **delete confirmation** and improved header layout (new / previous / next).
+- **Kotlin 2.0.21**, IntelliJ Platform **2025.1** for development builds; `sinceBuild` remains **241** for broad IDE compatibility.
+- Viewer layout: one-pixel splitter; toolbar and settings integration refactors.
+
+### Fixed / stability
+- **ReadAction** / read locks for document and tree validation to avoid EDT/threading issues.
+- Kotlin compile: **all warnings as errors** enabled in Gradle.
+
+### Development / repo
+- Dev-only **AllIcons explorer** when running with `-Djson.notes.dev.icons=true` (see `runIde` in `build.gradle.kts`).
+- README: JetBrains Marketplace link and documentation updates.
+
+## [1.0.1] — earlier
+
+- Initial public feature set: format, minify, tree view, tabs, Settings Sync, search, property grid, and related tooling.
+
+[1.0.2]: https://github.com/Aditya1942/json-viewer-intellij-plugin/releases

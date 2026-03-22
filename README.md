@@ -4,6 +4,17 @@ A **JSON viewer and notes** plugin for **all JetBrains IDEs** (IntelliJ IDEA, Py
 
 ---
 
+## What’s new in 1.0.2
+
+- **Open in main editor** — **Tools → Open JSON Notes in Editor** (default shortcut **Ctrl+Shift+Alt+J**, **⌃⇧⌥J** on macOS) for the same JSON Notes experience in the editor area.
+- **Safer tabs** — confirm before deleting a tab; tab bar and navigation tweaks.
+- **Better search** — debounced find with clearer highlights in text and tree.
+- **Look & feel** — font family/size in JSON Notes settings; optional toolbar visibility; UI polish and stability fixes.
+
+Full history: [CHANGELOG.md](CHANGELOG.md). When publishing to [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/30568-json-notes), paste the same bullets into **What’s new** (or rely on `plugin.xml` change notes from the build).
+
+---
+
 ## Features
 
 ### Viewing & editing
@@ -34,8 +45,9 @@ A **JSON viewer and notes** plugin for **all JetBrains IDEs** (IntelliJ IDEA, Py
 - **Copy** — Copy the full JSON from the current tab to the clipboard.
 
 ### Navigation
-- **Tab bar** — Previous / Next / New tab / Delete tab; tab title shows `[current/total] Tab name`.
-- **Shortcut** — **Ctrl+Shift+J** (Windows/Linux) or **Cmd+Shift+J** (macOS) opens the JSON Notes tool window. Also available under **Tools → Open JSON Notes**.
+- **Tab bar** — Previous / Next / New tab / Delete tab; tab title shows `[current/total] Tab name`. Closing a tab asks for confirmation.
+- **Tool window** — **Ctrl+Shift+J** (Windows/Linux) or **Cmd+Shift+J** (macOS), or **Tools → Open JSON Notes**.
+- **Main editor** — **Tools → Open JSON Notes in Editor** or **Ctrl+Shift+Alt+J** (**⌃⇧⌥J**) for the same features in the editor area.
 
 ---
 

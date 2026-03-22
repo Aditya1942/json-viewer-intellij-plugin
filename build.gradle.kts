@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.jsonviewer"
-version = "1.0.1"
+version = "1.0.2"
 
 repositories {
     mavenCentral()
@@ -66,6 +66,7 @@ intellijPlatform {
               <li><b>Property grid</b> — inspect selected node key/value or children in a side panel</li>
               <li><b>Search</b> — Cmd+F / Ctrl+F with next/previous and highlights in both text and tree</li>
               <li><b>Paste / Copy</b> — quick clipboard actions in the toolbar</li>
+              <li><b>Main editor</b> — open JSON Notes in the editor area (Tools menu)</li>
             </ul>
             <p>Inspired by <a href="https://jsonviewer.stack.hu/">Online JSON Viewer (jsonviewer.stack.hu)</a>.</p>
         """.trimIndent()
