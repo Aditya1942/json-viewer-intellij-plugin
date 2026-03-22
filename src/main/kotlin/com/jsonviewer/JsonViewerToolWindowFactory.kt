@@ -8,9 +8,11 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.content.ContentFactory
@@ -34,7 +36,7 @@ import javax.swing.*
 
 class JsonViewerToolWindowFactory : ToolWindowFactory, DumbAware {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val panel = JsonViewerPanel()
+        val panel = JsonViewerPanel(project)
         val content = ContentFactory.getInstance().createContent(panel, "", false)
         content.setDisposer(panel)
         toolWindow.contentManager.addContent(content)
@@ -45,7 +47,7 @@ class JsonViewerToolWindowFactory : ToolWindowFactory, DumbAware {
 // Root panel — tab bar on top, header below:
 //
 //  ┌──────────────────────────────────────────────────────┐
-//  │  <tab title>                                      [✕] │ ← tab bar
+//  │  <tab title>                              [↗][✕] │ ← tab bar
 //  ├──────────────────────────────────────────────────────┤
 //  │ [📄][🌲] | [+] | [‹][›] error?   [📋][📑][◫][▣]      │ ← header
 //  ├──────────────────────────────────────────────────────┤
@@ -55,7 +57,9 @@ class JsonViewerToolWindowFactory : ToolWindowFactory, DumbAware {
 //  └──────────────────────────────────────────────────────┘
 // ──────────────────────────────────────────────────────────────────────────────
 
-class JsonViewerPanel : JPanel(BorderLayout()), Disposable {
+class JsonViewerPanel(
+    private val project: Project
+) : JPanel(BorderLayout()), Disposable {
 
     companion object {
         private val LOG = Logger.getInstance(JsonViewerPanel::class.java)
@@ -97,6 +101,7 @@ class JsonViewerPanel : JPanel(BorderLayout()), Disposable {
     private val prevTabBtn = tabNavIconButton(AllIcons.Actions.Back, "Previous tab")
     private val nextTabBtn = tabNavIconButton(AllIcons.Actions.Forward, "Next tab")
     private val newTabBtn = tabNavIconButton(AllIcons.Actions.AddFile, "New tab")
+    private val openInEditorBtn = tabNavIconButton(AllIcons.Actions.EditSource, "Open in main editor")
     private val deleteTabBtn = tabNavIconButton(deleteIcon(), "Delete tab")
 
     init {
@@ -151,6 +156,7 @@ class JsonViewerPanel : JPanel(BorderLayout()), Disposable {
             isOpaque = false
             border = JBUI.Borders.emptyRight(JBUI.scale(6))
         }
+        tabBarRight.add(openInEditorBtn)
         tabBarRight.add(deleteTabBtn)
 
         tabBar.add(tabBarLeft, BorderLayout.WEST)
@@ -185,6 +191,7 @@ class JsonViewerPanel : JPanel(BorderLayout()), Disposable {
         prevTabBtn.addActionListener { navigateTab(-1) }
         nextTabBtn.addActionListener { navigateTab(+1) }
         newTabBtn.addActionListener { newTab() }
+        openInEditorBtn.addActionListener { openInMainEditor() }
         deleteTabBtn.addActionListener { deleteTab() }
 
         // ── Cmd+F at root level → open shared search bar ─────────────────
@@ -289,6 +296,10 @@ class JsonViewerPanel : JPanel(BorderLayout()), Disposable {
         refreshActiveTabContent()
         refreshTabBarState()
         reapplySearch()
+    }
+
+    private fun openInMainEditor() {
+        openJsonNotesInMainEditor(project)
     }
 
     private fun deleteTab() {
@@ -523,4 +534,13 @@ class JsonViewerPanel : JPanel(BorderLayout()), Disposable {
         // Dispose the editor component (releases IntelliJ Editor resources)
         Disposer.dispose(textContent)
     }
+}
+
+private const val JSON_NOTES_TOOL_WINDOW_ID = "JSON Notes"
+
+/** Opens JSON Notes in the main editor and hides the bottom tool window. */
+internal fun openJsonNotesInMainEditor(project: Project) {
+    val file = JsonNotesEditorVirtualFileService.getInstance(project).getOrCreateFile()
+    FileEditorManager.getInstance(project).openFile(file, true)
+    ToolWindowManager.getInstance(project).getToolWindow(JSON_NOTES_TOOL_WINDOW_ID)?.hide()
 }

@@ -43,6 +43,16 @@
         <applicationService
             serviceImplementation="com.jsonviewer.TabStorageService"
         />
+
+        <!-- One virtual file per project for main-editor JSON Notes tab -->
+        <projectService
+            serviceImplementation="com.jsonviewer.JsonNotesEditorVirtualFileService"
+        />
+
+        <!-- Full JSON Notes UI in the main editor area (not only the bottom tool window) -->
+        <fileEditorProvider
+            implementation="com.jsonviewer.JsonNotesFileEditorProvider"
+        />
     </extensions>
 
     <actions>
@@ -55,6 +65,16 @@
         >
             <add-to-group group-id="ToolsMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift J"/>
+        </action>
+        <action
+            id="JsonViewer.OpenInEditor"
+            class="com.jsonviewer.OpenJsonNotesInEditorAction"
+            text="Open JSON Notes in Editor"
+            description="Open JSON Notes in the main editor area (same features as the tool window)"
+            icon="AllIcons.FileTypes.Json"
+        >
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift alt J"/>
         </action>
     </actions>
 </idea-plugin>
