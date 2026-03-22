@@ -20,6 +20,11 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p><b>1.0.3</b> (2026-03-22)</p>
+        <ul>
+            <li><b>Bug fix</b> — main editor: writable virtual file so <strong>Undo / Redo</strong> works; <code>JsonNotesFileEditor</code> now integrates as a proper <code>TextEditor</code> with IDE data providers</li>
+            <li><b>Stability</b> — shared document between tool window and editor; safer threading and caret updates in the text panel when content changes</li>
+        </ul>
         <p><b>1.0.2</b> (2026-03-22)</p>
         <ul>
             <li><b>Editor integration</b> — open JSON Notes in the main editor via <strong>Tools → Open JSON Notes in Editor</strong> (shortcut: Ctrl+Shift+Alt+J, ⌃⇧⌥J on macOS)</li>

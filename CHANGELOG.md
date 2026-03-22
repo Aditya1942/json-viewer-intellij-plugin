@@ -2,6 +2,14 @@
 
 All notable changes to **JSON Notes** are documented here. The version in `build.gradle.kts` and the `<change-notes>` in `plugin.xml` should stay aligned with Marketplace releases.
 
+## [1.0.3] — 2026-03-22
+
+### Fixed
+- **Main editor** — virtual file is writable so **Undo / Redo** works when JSON Notes is opened in the editor area.
+- **Editor integration** — `JsonNotesFileEditor` implements `TextEditor` and `DataProvider` for correct IDE behavior.
+- **Tool window ↔ editor** — shared document between the bottom tool window and the main editor where applicable.
+- **Text updates** — safer threading and caret handling in `TextContentPanel` when content changes.
+
 ## [1.0.2] — 2026-03-22
 
 ### Added
@@ -27,4 +35,5 @@ All notable changes to **JSON Notes** are documented here. The version in `build
 
 - Initial public feature set: format, minify, tree view, tabs, Settings Sync, search, property grid, and related tooling.
 
+[1.0.3]: https://github.com/Aditya1942/json-viewer-intellij-plugin/releases
 [1.0.2]: https://github.com/Aditya1942/json-viewer-intellij-plugin/releases
