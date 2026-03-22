@@ -41,7 +41,7 @@ class SearchPanel : JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 3)) 
     var onClose: () -> Unit = {}
 
     init {
-        border = JBUI.Borders.customLine(JBColor.border(), 1, 0, 0, 0)
+        border = JBUI.Borders.customLine(ideSeparatorColor(), 1, 0, 0, 0)
 
         add(JBLabel("Search:"))
         searchField.preferredSize = Dimension(200, 26)
@@ -108,8 +108,11 @@ class SearchPanel : JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 3)) 
     private fun navBtn(text: String, action: () -> Unit): JButton {
         return JButton(text).apply {
             isFocusPainted = false
+            isBorderPainted = false
+            isContentAreaFilled = false
             margin = JBUI.insets(2, 6)
             font = font.deriveFont(Font.PLAIN, 11f)
+            installIconButtonHover()
             addActionListener { action() }
         }
     }

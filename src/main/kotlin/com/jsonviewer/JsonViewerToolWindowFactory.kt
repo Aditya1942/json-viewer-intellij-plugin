@@ -16,20 +16,28 @@ import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextField
 import com.intellij.ui.content.ContentFactory
 import com.intellij.util.ui.JBUI
+import com.jsonviewer.ui.ideSeparatorColor
 import com.jsonviewer.ui.SearchPanel
 import com.jsonviewer.ui.Searchable
 import com.jsonviewer.ui.TextContentPanel
 import com.jsonviewer.ui.ViewerContentPanel
+import com.jsonviewer.ui.installIconButtonHover
 import java.awt.*
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.awt.event.*
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.ArrayDeque
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.*
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Factory
@@ -45,17 +53,11 @@ class JsonViewerToolWindowFactory : ToolWindowFactory, DumbAware {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Root panel — tab bar on top, header below:
+// Root panel — two modes (CardLayout):
 //
-//  ┌──────────────────────────────────────────────────────┐
-//  │  <tab title>                              [↗][✕] │ ← tab bar
-//  ├──────────────────────────────────────────────────────┤
-//  │ [📄][🌲] | [+] | [‹][›] error?   [📋][📑][◫][▣]      │ ← header
-//  ├──────────────────────────────────────────────────────┤
-//  │                                                      │
-//  │  content (text editor  OR  tree viewer)              │
-//  │                                                      │
-//  └──────────────────────────────────────────────────────┘
+//  Main: tab bar → header → text/viewer + search bar
+//
+//  All notes: full-area overlay (replaces tab bar + header + editor), [← Back] row on top
 // ──────────────────────────────────────────────────────────────────────────────
 
 class JsonViewerPanel(
@@ -64,6 +66,10 @@ class JsonViewerPanel(
 
     companion object {
         private val LOG = Logger.getInstance(JsonViewerPanel::class.java)
+        private const val ROOT_CARD_MAIN = "main"
+        private const val ROOT_CARD_NOTES_LIST = "notesListFull"
+        private const val NOTES_HEADER_DEFAULT = "notesHeaderDefault"
+        private const val NOTES_HEADER_SEARCH = "notesHeaderSearch"
     }
 
     // ── View mode ──
@@ -79,6 +85,57 @@ class JsonViewerPanel(
     private val textContent = TextContentPanel(onTextChanged = { text -> onActiveTabTextChanged(text) })
     private val viewerContent = ViewerContentPanel()
     private val contentStack = JPanel(CardLayout())
+    /** Main chrome (tab bar + toolbar + editor) vs full-tool-window notes list. */
+    private val rootStack = JPanel(CardLayout())
+    private var notesListOverlayOpen = false
+    private var notesListSearchMode = false
+
+    private val notesListBackBtn = tabNavIconButton(AllIcons.Actions.Back, "Back to editor")
+    private val notesListRowsPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        alignmentX = Component.LEFT_ALIGNMENT
+    }
+    private val notesListSearchGeneration = AtomicInteger(0)
+    private val notesListContentDebounceTimer = Timer(200, null).apply {
+        isRepeats = false
+        addActionListener {
+            val q = notesListSearchField.text.trim()
+            val g = notesListSearchGeneration.get()
+            runNotesListContentPhase(q, g)
+        }
+    }
+    private val notesListSearchField = JBTextField().apply {
+        emptyText.text = "Search by title or content…"
+        document.addDocumentListener(object : DocumentListener {
+            override fun insertUpdate(e: DocumentEvent) {
+                scheduleNotesListSearch()
+            }
+
+            override fun removeUpdate(e: DocumentEvent) {
+                scheduleNotesListSearch()
+            }
+
+            override fun changedUpdate(e: DocumentEvent) {
+                scheduleNotesListSearch()
+            }
+        })
+    }
+    private val notesListClearSearchBtn = tabNavIconButton(AllIcons.Actions.Cancel, "Clear search").apply {
+        addActionListener {
+            notesListSearchField.text = ""
+            scheduleNotesListSearch()
+        }
+    }
+    private val notesListSearchBackBtn = tabNavIconButton(AllIcons.Actions.Back, "Close search").apply {
+        addActionListener { exitNotesListSearchMode() }
+    }
+    private val notesListSearchToggleBtn = tabNavIconButton(AllIcons.Actions.Find, "Search notes").apply {
+        addActionListener { enterNotesListSearchMode() }
+    }
+    private val notesListTopBar = JPanel(CardLayout()).apply {
+        border = JBUI.Borders.customLine(ideSeparatorColor(), 0, 0, 1, 0)
+        minimumSize = Dimension(0, JBUI.scale(36))
+    }
 
     // ── Shared search bar ──
     private val searchPanel = SearchPanel()
@@ -104,18 +161,19 @@ class JsonViewerPanel(
     private val newTabBtn = tabNavIconButton(AllIcons.Actions.AddFile, "New tab")
     private val openInEditorBtn = tabNavIconButton(AllIcons.Actions.EditSource, "Open in main editor")
     private val deleteTabBtn = tabNavIconButton(deleteIcon(), "Delete tab")
+    private val listTabsBtn = tabNavIconButton(AllIcons.Actions.ListFiles, "All notes (list)")
 
     init {
         // ── Header (no title; responsive wrap) ──────────────────────────────
         val header = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.customLine(JBColor.border(), 0, 0, 1, 0)
+            border = JBUI.Borders.customLine(ideSeparatorColor(), 0, 0, 1, 0)
             minimumSize = Dimension(0, JBUI.scale(28))
         }
 
         // Left: Text/Viewer | New tab | Prev/Next | error
         val headerLeft = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(2), 0).apply { alignOnBaseline = true }).apply {
             isOpaque = false
-            border = JBUI.Borders.emptyLeft(JBUI.scale(6))
+            border = JBUI.Borders.emptyLeft(JBUI.scale(4))
         }
         headerLeft.add(textBtn)
         headerLeft.add(viewerBtn)
@@ -127,9 +185,9 @@ class JsonViewerPanel(
         headerLeft.add(errorLabel)
 
         // Right: action icon buttons (Paste, Copy, Format, Minify)
-        val headerRight = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(2), JBUI.scale(2)).apply { alignOnBaseline = true }).apply {
+        val headerRight = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(2), 0).apply { alignOnBaseline = true }).apply {
             isOpaque = false
-            border = JBUI.Borders.emptyRight(JBUI.scale(6))
+            border = JBUI.Borders.emptyRight(JBUI.scale(4))
         }
         headerRight.add(actionIconButton(AllIcons.Actions.MenuPaste, "Paste") { pasteFromClipboard() })
         headerRight.add(actionIconButton(AllIcons.Actions.Copy, "Copy") { copyToClipboard() })
@@ -141,7 +199,7 @@ class JsonViewerPanel(
 
         // ── Tab bar: tab title + delete ───────────────────────────────────────
         val tabBar = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.customLine(JBColor.border(), 0, 0, 1, 0)
+            border = JBUI.Borders.customLine(ideSeparatorColor(), 0, 0, 1, 0)
             minimumSize = Dimension(0, JBUI.scale(28))
         }
 
@@ -153,12 +211,14 @@ class JsonViewerPanel(
         tabTitleLabel.horizontalAlignment = SwingConstants.LEFT
         tabBarLeft.add(tabTitleLabel, BorderLayout.CENTER)
 
-        val tabBarRight = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(4), 0)).apply {
+        val tabBarRight = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(2), 0).apply { alignOnBaseline = true }).apply {
             isOpaque = false
-            border = JBUI.Borders.emptyRight(JBUI.scale(6))
+            border = JBUI.Borders.emptyRight(JBUI.scale(4))
         }
         tabBarRight.add(openInEditorBtn)
         tabBarRight.add(deleteTabBtn)
+        tabBarRight.add(headerVerticalSeparator())
+        tabBarRight.add(listTabsBtn)
 
         tabBar.add(tabBarLeft, BorderLayout.WEST)
         tabBar.add(tabBarRight, BorderLayout.EAST)
@@ -174,6 +234,69 @@ class JsonViewerPanel(
         contentStack.add(textContent, "text")
         contentStack.add(viewerContent, "viewer")
 
+        // ── Full-area notes list (replaces tab bar + toolbar + editor + search) ─
+        val notesListTitleLabel = JBLabel("All notes").apply {
+            font = font.deriveFont(Font.BOLD, 14f)
+            verticalAlignment = SwingConstants.CENTER
+            alignmentX = Component.LEFT_ALIGNMENT
+            alignmentY = Component.CENTER_ALIGNMENT
+        }
+        val notesListHeaderDefault = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            isOpaque = false
+            border = JBUI.Borders.empty(4, JBUI.scale(6), 4, JBUI.scale(6))
+            add(notesListBackBtn.apply { alignmentY = Component.CENTER_ALIGNMENT })
+            add(Box.createHorizontalStrut(JBUI.scale(8)))
+            add(notesListTitleLabel)
+            add(Box.createHorizontalGlue())
+            add(notesListSearchToggleBtn.apply { alignmentY = Component.CENTER_ALIGNMENT })
+        }
+        val notesListHeaderSearch = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            border = JBUI.Borders.empty(4, JBUI.scale(8), 4, JBUI.scale(8))
+            isOpaque = false
+            add(notesListSearchBackBtn.apply { alignmentY = Component.CENTER_ALIGNMENT })
+            add(Box.createHorizontalStrut(JBUI.scale(8)))
+            add(
+                notesListSearchField.apply {
+                    alignmentY = Component.CENTER_ALIGNMENT
+                    maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(32))
+                }
+            )
+            add(Box.createHorizontalStrut(JBUI.scale(8)))
+            add(notesListClearSearchBtn.apply { alignmentY = Component.CENTER_ALIGNMENT })
+        }
+        notesListTopBar.add(notesListHeaderDefault, NOTES_HEADER_DEFAULT)
+        notesListTopBar.add(notesListHeaderSearch, NOTES_HEADER_SEARCH)
+
+        val notesListScroll = JBScrollPane(notesListRowsPanel).apply {
+            border = JBUI.Borders.empty()
+            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+            verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+        }
+
+        val notesListBody = JPanel(BorderLayout()).apply {
+            add(notesListScroll, BorderLayout.CENTER)
+        }
+
+        val notesListOverlay = JPanel(BorderLayout()).apply {
+            add(notesListTopBar, BorderLayout.NORTH)
+            add(notesListBody, BorderLayout.CENTER)
+        }
+        notesListBackBtn.addActionListener { hideNotesListOverlay() }
+        notesListOverlay.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(
+            KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+            "closeNotesOverlay"
+        )
+        notesListOverlay.actionMap.put(
+            "closeNotesOverlay",
+            object : AbstractAction() {
+                override fun actionPerformed(e: ActionEvent) {
+                    handleNotesListOverlayEscape()
+                }
+            }
+        )
+
         // ── Shared search bar (hidden by default) ─────────────────────────
         searchPanel.isVisible = false
         searchPanel.onSearch = { query -> dispatchSearch(query) }
@@ -181,10 +304,17 @@ class JsonViewerPanel(
         searchPanel.onPrevious = { dispatchNavigate(-1) }
         searchPanel.onClose = { closeSearch() }
 
+        val mainViewPanel = JPanel(BorderLayout()).apply {
+            add(topChrome, BorderLayout.NORTH)
+            add(contentStack, BorderLayout.CENTER)
+            add(searchPanel, BorderLayout.SOUTH)
+        }
+
+        rootStack.add(mainViewPanel, ROOT_CARD_MAIN)
+        rootStack.add(notesListOverlay, ROOT_CARD_NOTES_LIST)
+
         // ── Root ────────────────────────────────────────────────────────────
-        add(topChrome, BorderLayout.NORTH)
-        add(contentStack, BorderLayout.CENTER)
-        add(searchPanel, BorderLayout.SOUTH)
+        add(rootStack, BorderLayout.CENTER)
 
         // ── Wire buttons ────────────────────────────────────────────────────
         textBtn.addActionListener { switchViewMode(ViewMode.TEXT) }
@@ -194,6 +324,7 @@ class JsonViewerPanel(
         newTabBtn.addActionListener { newTab() }
         openInEditorBtn.addActionListener { openInMainEditor() }
         deleteTabBtn.addActionListener { deleteTab() }
+        listTabsBtn.addActionListener { showNotesListOverlay() }
 
         // ── Cmd+F at root level → open shared search bar ─────────────────
         val im = getInputMap(WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
@@ -224,6 +355,9 @@ class JsonViewerPanel(
         activeTabId = newActiveId ?: tabs.firstOrNull()?.id ?: ""
         refreshActiveTabContent()
         refreshTabBarState()
+        if (notesListOverlayOpen) {
+            scheduleNotesListSearch()
+        }
     }
 
     private fun activeTab(): SavedTab? = tabs.find { it.id == activeTabId }
@@ -286,6 +420,40 @@ class JsonViewerPanel(
         }
     }
 
+    /** Switch to a tab from the All notes list (including search results) and return to the editor. */
+    private fun openNoteFromList(tabId: String) {
+        if (tabs.none { it.id == tabId }) return
+        if (activeTabId != tabId) {
+            activeTabId = tabId
+            storageService.setActiveTab(activeTabId)
+            switchToTextMode()
+            refreshActiveTabContent()
+            refreshTabBarState()
+            reapplySearch()
+        }
+        hideNotesListOverlay()
+    }
+
+    private fun installNotesListRowOpenHandlers(root: JComponent, tabId: String) {
+        val listener = object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if (!SwingUtilities.isLeftMouseButton(e)) return
+                openNoteFromList(tabId)
+            }
+        }
+        val queue = ArrayDeque<JComponent>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val c = queue.removeFirst()
+            c.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            c.addMouseListener(listener)
+            for (i in 0 until c.componentCount) {
+                val child = c.getComponent(i)
+                if (child is JComponent) queue.add(child)
+            }
+        }
+    }
+
     private fun newTab() {
         val name = LocalDateTime.now().format(
             DateTimeFormatter.ofPattern("MMM dd, yyyy h:mm a", Locale.US)
@@ -335,6 +503,262 @@ class JsonViewerPanel(
         refreshActiveTabContent()
         refreshTabBarState()
         reapplySearch()
+    }
+
+    private fun showRootCard(name: String) {
+        (rootStack.layout as CardLayout).show(rootStack, name)
+    }
+
+    private fun showNotesListHeaderCard(name: String) {
+        (notesListTopBar.layout as CardLayout).show(notesListTopBar, name)
+    }
+
+    private fun showNotesListOverlay() {
+        closeSearch()
+        showRootCard(ROOT_CARD_NOTES_LIST)
+        notesListOverlayOpen = true
+        notesListSearchMode = false
+        notesListSearchField.text = ""
+        showNotesListHeaderCard(NOTES_HEADER_DEFAULT)
+        scheduleNotesListSearch()
+        notesListBackBtn.requestFocusInWindow()
+    }
+
+    private fun hideNotesListOverlay() {
+        notesListContentDebounceTimer.stop()
+        notesListSearchGeneration.incrementAndGet()
+        notesListOverlayOpen = false
+        notesListSearchMode = false
+        notesListSearchField.text = ""
+        showNotesListHeaderCard(NOTES_HEADER_DEFAULT)
+        showRootCard(ROOT_CARD_MAIN)
+        reapplySearch()
+    }
+
+    private fun enterNotesListSearchMode() {
+        if (!notesListOverlayOpen) return
+        notesListSearchMode = true
+        showNotesListHeaderCard(NOTES_HEADER_SEARCH)
+        notesListSearchField.requestFocusInWindow()
+    }
+
+    private fun exitNotesListSearchMode() {
+        notesListSearchField.text = ""
+        scheduleNotesListSearch()
+        notesListSearchMode = false
+        showNotesListHeaderCard(NOTES_HEADER_DEFAULT)
+    }
+
+    private fun handleNotesListOverlayEscape() {
+        if (notesListSearchMode) {
+            exitNotesListSearchMode()
+        } else {
+            hideNotesListOverlay()
+        }
+    }
+
+    /**
+     * Title matches first (sync), then after a short debounce runs async content scan
+     * and appends matches one-by-one (secondary priority).
+     */
+    private fun scheduleNotesListSearch() {
+        if (!notesListOverlayOpen) return
+        val query = notesListSearchField.text.trim()
+        val gen = notesListSearchGeneration.incrementAndGet()
+        runNotesListTitlePhase(query, gen)
+        notesListContentDebounceTimer.stop()
+        if (query.isNotEmpty()) {
+            notesListContentDebounceTimer.start()
+        }
+    }
+
+    private fun runNotesListTitlePhase(query: String, gen: Int) {
+        if (gen != notesListSearchGeneration.get()) return
+        notesListRowsPanel.removeAll()
+        val allTabs = storageService.getTabs()
+        val activeId = storageService.getActiveTabId()
+        if (query.isEmpty()) {
+            for (tab in allTabs) {
+                addNotesListRow(tab, activeId, "")
+            }
+            notesListRowsPanel.add(Box.createVerticalGlue())
+            notesListRowsPanel.revalidate()
+            notesListRowsPanel.repaint()
+            return
+        }
+        val queryLower = query.lowercase(Locale.getDefault())
+        for (tab in allTabs) {
+            val name = tab.name.trim().ifEmpty { "Untitled" }
+            if (name.lowercase(Locale.getDefault()).contains(queryLower)) {
+                addNotesListRow(tab, activeId, query)
+            }
+        }
+        notesListRowsPanel.add(Box.createVerticalGlue())
+        notesListRowsPanel.revalidate()
+        notesListRowsPanel.repaint()
+    }
+
+    private fun runNotesListContentPhase(query: String, gen: Int) {
+        if (query.isEmpty()) return
+        if (gen != notesListSearchGeneration.get()) return
+        val queryLower = query.lowercase(Locale.getDefault())
+        val allTabs = storageService.getTabs()
+        val titleMatchedIds = allTabs.asSequence()
+            .filter { tab ->
+                (tab.name.trim().ifEmpty { "Untitled" }).lowercase(Locale.getDefault()).contains(queryLower)
+            }
+            .map { it.id }
+            .toSet()
+        val candidates = allTabs.filter { tab ->
+            tab.id !in titleMatchedIds && tab.jsonText.contains(query, ignoreCase = true)
+        }
+        ApplicationManager.getApplication().executeOnPooledThread {
+            for (tab in candidates) {
+                if (gen != notesListSearchGeneration.get()) return@executeOnPooledThread
+                SwingUtilities.invokeLater {
+                    if (gen != notesListSearchGeneration.get()) return@invokeLater
+                    insertNotesListRowBeforeGlue(tab, query)
+                }
+                try {
+                    Thread.sleep(12)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return@executeOnPooledThread
+                }
+            }
+        }
+    }
+
+    private fun addNotesListRow(tab: SavedTab, activeId: String?, query: String) {
+        val row = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(4, 0, 4, 0)
+            alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(56))
+        }
+        val name = tab.name.trim().ifEmpty { "Untitled" }
+        val titleColumn = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            alignmentX = Component.LEFT_ALIGNMENT
+            isOpaque = false
+        }
+        val titleLabel = JBLabel(name).apply {
+            if (tab.id == activeId) {
+                font = font.deriveFont(Font.BOLD)
+            }
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        titleColumn.add(titleLabel)
+        if (query.isNotEmpty()) {
+            val n = countContentMatches(tab.jsonText, query)
+            if (n > 0) {
+                val hint = JBLabel(
+                    if (n == 1) "Found 1 match in content" else "Found $n matches in content"
+                ).apply {
+                    font = font.deriveFont(Font.PLAIN, 11f)
+                    foreground = JBColor(Color(0x6E, 0x6E, 0x6E), Color(0x9A, 0x9A, 0x9A))
+                    alignmentX = Component.LEFT_ALIGNMENT
+                }
+                titleColumn.add(hint)
+            }
+        }
+        val actions = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(4), 0)).apply {
+            isOpaque = false
+        }
+        val editBtn = tabNavIconButton(AllIcons.Actions.Edit, "Rename")
+        val delBtn = tabNavIconButton(deleteIcon(), "Delete tab")
+        editBtn.addActionListener { renameTabFromList(tab.id) }
+        delBtn.addActionListener { deleteTabFromList(tab.id) }
+        actions.add(editBtn)
+        actions.add(delBtn)
+        row.add(titleColumn, BorderLayout.CENTER)
+        row.add(actions, BorderLayout.EAST)
+        installNotesListRowOpenHandlers(titleColumn, tab.id)
+        notesListRowsPanel.add(row)
+    }
+
+    /** Non-overlapping, case-insensitive occurrences of [query] in [jsonText]. */
+    private fun countContentMatches(jsonText: String, query: String): Int {
+        if (query.isEmpty()) return 0
+        val hay = jsonText.lowercase(Locale.getDefault())
+        val nd = query.lowercase(Locale.getDefault())
+        var count = 0
+        var from = 0
+        while (true) {
+            val idx = hay.indexOf(nd, from)
+            if (idx < 0) break
+            count++
+            from = idx + nd.length
+        }
+        return count
+    }
+
+    private fun stripNotesListTrailingGlue() {
+        val p = notesListRowsPanel
+        if (p.componentCount == 0) return
+        val last = p.componentCount - 1
+        val c = p.getComponent(last)
+        if (c is Box.Filler) {
+            p.remove(last)
+        }
+    }
+
+    private fun insertNotesListRowBeforeGlue(tab: SavedTab, query: String) {
+        val activeId = storageService.getActiveTabId()
+        stripNotesListTrailingGlue()
+        addNotesListRow(tab, activeId, query)
+        notesListRowsPanel.add(Box.createVerticalGlue())
+        notesListRowsPanel.revalidate()
+        notesListRowsPanel.repaint()
+    }
+
+    private fun renameTabFromList(tabId: String) {
+        val tab = storageService.getTabs().find { it.id == tabId } ?: return
+        val newName = Messages.showInputDialog(
+            project,
+            "Enter a new title for this tab:",
+            "Rename Tab",
+            Messages.getQuestionIcon(),
+            tab.name,
+            null
+        ) ?: return
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty()) return
+        storageService.updateTab(tabId, name = trimmed)
+        scheduleNotesListSearch()
+    }
+
+    private fun deleteTabFromList(tabId: String) {
+        val allTabs = storageService.getTabs()
+        val tab = allTabs.find { it.id == tabId } ?: return
+        val tabName = tab.name.trim().ifEmpty { "Untitled" }
+
+        if (allTabs.size <= 1) {
+            val confirmed = Messages.showYesNoDialog(
+                this,
+                "Clear \"$tabName\"? This removes all content and resets the tab title.",
+                "Clear Tab",
+                Messages.getQuestionIcon()
+            ) == Messages.YES
+            if (!confirmed) return
+            val name = LocalDateTime.now().format(
+                DateTimeFormatter.ofPattern("MMM dd, yyyy h:mm a", Locale.US)
+            )
+            textContent.setText("")
+            storageService.updateTab(tabId, name = name, jsonText = "")
+            scheduleNotesListSearch()
+            return
+        }
+
+        val confirmed = Messages.showYesNoDialog(
+            this,
+            "Delete tab \"$tabName\"?",
+            "Delete Tab",
+            Messages.getQuestionIcon()
+        ) == Messages.YES
+        if (!confirmed) return
+
+        storageService.removeTab(tabId)
+        scheduleNotesListSearch()
     }
 
     private fun switchToTextMode() {
@@ -467,7 +891,7 @@ class JsonViewerPanel(
             margin = JBUI.insets(JBUI.scale(2), JBUI.scale(4))
             preferredSize = Dimension(JBUI.scale(24), JBUI.scale(24))
             minimumSize = Dimension(JBUI.scale(22), JBUI.scale(22))
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            installIconButtonHover { updateToggleState() }
         }
     }
 
@@ -492,18 +916,45 @@ class JsonViewerPanel(
             margin = JBUI.insets(JBUI.scale(2), JBUI.scale(4))
             preferredSize = Dimension(JBUI.scale(24), JBUI.scale(24))
             minimumSize = Dimension(JBUI.scale(22), JBUI.scale(22))
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            installIconButtonHover()
             addActionListener { action() }
         }
     }
 
-    private fun headerVerticalSeparator(): JSeparator {
-        val h = JBUI.scale(18)
-        return JSeparator(SwingConstants.VERTICAL).apply {
-            preferredSize = Dimension(JBUI.scale(10), h)
-            maximumSize = Dimension(JBUI.scale(12), h)
+    /**
+     * Vertical rule between toolbar groups. Painted explicitly so width/height stay stable in
+     * [FlowLayout]. Color: [ideSeparatorColor] (same as platform toolbar separators).
+     */
+    private fun headerVerticalSeparator(): JComponent {
+        val lineHeight = JBUI.scale(16)
+        val padH = JBUI.scale(2)
+        val lineW = JBUI.scale(1).coerceAtLeast(1)
+        val totalW = lineW + 2 * padH
+        return object : JComponent() {
+            init {
+                isOpaque = false
+            }
+
+            override fun getPreferredSize(): Dimension = Dimension(totalW, lineHeight)
+            override fun getMaximumSize(): Dimension = Dimension(totalW, lineHeight)
+            override fun getMinimumSize(): Dimension = Dimension(totalW, lineHeight)
+
+            override fun paintComponent(g: Graphics) {
+                super.paintComponent(g)
+                val g2 = g.create() as Graphics2D
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF)
+                    g2.color = headerSeparatorLineColor()
+                    val y = (height - lineHeight) / 2
+                    g2.fillRect(padH, y, lineW, lineHeight)
+                } finally {
+                    g2.dispose()
+                }
+            }
         }
     }
+
+    private fun headerSeparatorLineColor(): Color = ideSeparatorColor()
 
     private fun tabNavIconButton(icon: Icon, tooltip: String): JButton {
         return JButton(icon).apply {
@@ -514,7 +965,7 @@ class JsonViewerPanel(
             preferredSize = Dimension(JBUI.scale(24), JBUI.scale(24))
             minimumSize = Dimension(JBUI.scale(22), JBUI.scale(22))
             margin = JBUI.insets(0)
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            installIconButtonHover()
         }
     }
 
@@ -546,6 +997,7 @@ class JsonViewerPanel(
         storageListener = null
         // Stop debounce timers to prevent firing after dispose
         searchPanel.stopTimers()
+        notesListContentDebounceTimer.stop()
         // Dispose the editor component (releases IntelliJ Editor resources)
         Disposer.dispose(textContent)
     }

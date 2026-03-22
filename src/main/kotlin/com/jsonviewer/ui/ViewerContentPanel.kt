@@ -3,7 +3,7 @@ package com.jsonviewer.ui
 import com.google.gson.JsonElement
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.ui.JBSplitter
+import com.intellij.ui.OnePixelSplitter
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.table.JBTable
 import com.intellij.ui.treeStructure.Tree
@@ -102,7 +102,7 @@ class ViewerContentPanel : JPanel(BorderLayout()), Searchable {
 
         // ── Right panel: expand/collapse toolbar + table ──
         val rightPanel = JPanel(BorderLayout())
-        val viewerToolbar = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(2), JBUI.scale(2))).apply {
+        val viewerToolbar = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0)).apply {
             isOpaque = false
             border = JBUI.Borders.empty(2, 2)
         }
@@ -113,11 +113,12 @@ class ViewerContentPanel : JPanel(BorderLayout()), Searchable {
         rightPanel.add(viewerToolbar, BorderLayout.NORTH)
         rightPanel.add(JBScrollPane(table), BorderLayout.CENTER)
 
-        // ── Splitter ──
-        val splitter = JBSplitter(false, 0.65f).apply {
+        // ── Splitter: 1px line, same stroke as [ideSeparatorColor]
+        val splitter = OnePixelSplitter(false, 0.65f).apply {
             firstComponent = JBScrollPane(tree)
             secondComponent = rightPanel
         }
+        splitter.divider.background = ideSeparatorColor()
 
         add(splitter, BorderLayout.CENTER)
     }
@@ -131,6 +132,7 @@ class ViewerContentPanel : JPanel(BorderLayout()), Searchable {
             margin = JBUI.insets(JBUI.scale(2), JBUI.scale(4))
             preferredSize = Dimension(JBUI.scale(24), JBUI.scale(24))
             minimumSize = Dimension(JBUI.scale(22), JBUI.scale(22))
+            installIconButtonHover()
             addActionListener { action() }
         }
     }
