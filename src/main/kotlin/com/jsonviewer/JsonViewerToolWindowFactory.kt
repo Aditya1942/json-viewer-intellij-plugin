@@ -5,6 +5,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.DumbAware
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.project.Project
@@ -44,9 +45,9 @@ class JsonViewerToolWindowFactory : ToolWindowFactory, DumbAware {
 // Root panel — tab bar on top, header below:
 //
 //  ┌──────────────────────────────────────────────────────┐
-//  │  <tab title>                        [‹][›][+][✕]     │ ← tab bar (icon nav)
+//  │  <tab title>                                      [✕] │ ← tab bar
 //  ├──────────────────────────────────────────────────────┤
-//  │ [📄][🌲] error?     [📋][📑][◫][▣]                  │ ← header (icons: Text/Viewer, Paste/Copy/Format/Minify)
+//  │ [📄][🌲] | [+] | [‹][›] error?   [📋][📑][◫][▣]      │ ← header
 //  ├──────────────────────────────────────────────────────┤
 //  │                                                      │
 //  │  content (text editor  OR  tree viewer)              │
@@ -105,13 +106,18 @@ class JsonViewerPanel : JPanel(BorderLayout()), Disposable {
             minimumSize = Dimension(0, JBUI.scale(28))
         }
 
-        // Left: Text/Viewer icon toggles + error
+        // Left: Text/Viewer | New tab | Prev/Next | error
         val headerLeft = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(2), 0).apply { alignOnBaseline = true }).apply {
             isOpaque = false
             border = JBUI.Borders.emptyLeft(JBUI.scale(6))
         }
         headerLeft.add(textBtn)
         headerLeft.add(viewerBtn)
+        headerLeft.add(headerVerticalSeparator())
+        headerLeft.add(newTabBtn)
+        headerLeft.add(headerVerticalSeparator())
+        headerLeft.add(prevTabBtn)
+        headerLeft.add(nextTabBtn)
         headerLeft.add(errorLabel)
 
         // Right: action icon buttons (Paste, Copy, Format, Minify)
@@ -127,7 +133,7 @@ class JsonViewerPanel : JPanel(BorderLayout()), Disposable {
         header.add(headerLeft, BorderLayout.WEST)
         header.add(headerRight, BorderLayout.EAST)
 
-        // ── Tab bar: tab title + nav icon buttons ─────────────────────────────
+        // ── Tab bar: tab title + delete ───────────────────────────────────────
         val tabBar = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.customLine(JBColor.border(), 0, 0, 1, 0)
             minimumSize = Dimension(0, JBUI.scale(28))
@@ -145,9 +151,6 @@ class JsonViewerPanel : JPanel(BorderLayout()), Disposable {
             isOpaque = false
             border = JBUI.Borders.emptyRight(JBUI.scale(6))
         }
-        tabBarRight.add(prevTabBtn)
-        tabBarRight.add(nextTabBtn)
-        tabBarRight.add(newTabBtn)
         tabBarRight.add(deleteTabBtn)
 
         tabBar.add(tabBarLeft, BorderLayout.WEST)
@@ -301,6 +304,15 @@ class JsonViewerPanel : JPanel(BorderLayout()), Disposable {
             reapplySearch()
             return
         }
+        val tabName = activeTab()?.name?.trim().orEmpty().ifEmpty { "Untitled" }
+        val confirmed = Messages.showYesNoDialog(
+            this,
+            "Delete tab \"$tabName\"?",
+            "Delete Tab",
+            Messages.getQuestionIcon()
+        ) == Messages.YES
+        if (!confirmed) return
+
         val idx = tabs.indexOfFirst { it.id == activeTabId }
         storageService.removeTab(activeTabId)
         tabs.removeAt(idx)
@@ -470,6 +482,14 @@ class JsonViewerPanel : JPanel(BorderLayout()), Disposable {
             minimumSize = Dimension(JBUI.scale(22), JBUI.scale(22))
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             addActionListener { action() }
+        }
+    }
+
+    private fun headerVerticalSeparator(): JSeparator {
+        val h = JBUI.scale(18)
+        return JSeparator(SwingConstants.VERTICAL).apply {
+            preferredSize = Dimension(JBUI.scale(10), h)
+            maximumSize = Dimension(JBUI.scale(12), h)
         }
     }
 
