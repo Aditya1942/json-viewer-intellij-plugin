@@ -1,9 +1,11 @@
 package com.jsonviewer.ui
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -46,7 +48,7 @@ class TextContentPanel(
         }
     }
 
-    private val document = EditorFactory.getInstance().createDocument("")
+    private val document: Document
     private val editor: Editor
     private var debounceTimer: Timer? = null
     private var suppressEvents = false
@@ -61,19 +63,24 @@ class TextContentPanel(
     private var currentMatchIndex = -1
 
     init {
-        editor = EditorFactory.getInstance().createEditor(document).also { ed ->
-            // Configure editor settings — starts as plain text, JSON features
-            // are applied dynamically when valid JSON content is detected
-            ed.settings.apply {
-                isLineNumbersShown = true
-                isLineMarkerAreaShown = false
-                isFoldingOutlineShown = true
-                isUseSoftWraps = true
-                additionalLinesCount = 2
-                isAdditionalPageAtBottom = false
-                setTabSize(2)
+        val factory = EditorFactory.getInstance()
+        val created = ReadAction.compute<Pair<Document, Editor>, RuntimeException> {
+            val doc = factory.createDocument("")
+            val ed = factory.createEditor(doc).also { ed ->
+                ed.settings.apply {
+                    isLineNumbersShown = true
+                    isLineMarkerAreaShown = false
+                    isFoldingOutlineShown = true
+                    isUseSoftWraps = true
+                    additionalLinesCount = 2
+                    isAdditionalPageAtBottom = false
+                    setTabSize(2)
+                }
             }
+            doc to ed
         }
+        document = created.first
+        editor = created.second
 
         // Add document change listener with debounce
         document.addDocumentListener(object : DocumentListener {

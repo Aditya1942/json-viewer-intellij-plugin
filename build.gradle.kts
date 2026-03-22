@@ -1,4 +1,5 @@
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     id("java")
@@ -18,13 +19,19 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        // Works with IntelliJ IDEA Community 2023.3+
-        intellijIdeaCommunity("2023.3")
+        // Dev / runIde: 2024.3+ parses Java 25 in GradleJvmSupportMatrix; 2023.3 throws on "25".
+        intellijIdeaCommunity("2024.3")
     }
 }
 
 kotlin {
     jvmToolchain(17)
+}
+
+tasks.withType<KotlinCompile>().configureEach {
+    compilerOptions {
+        allWarningsAsErrors.set(true)
+    }
 }
 
 intellijPlatform {

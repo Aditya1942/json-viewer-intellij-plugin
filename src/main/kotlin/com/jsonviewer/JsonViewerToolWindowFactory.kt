@@ -3,6 +3,7 @@ package com.jsonviewer
 import com.google.gson.JsonParser
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.ui.Messages
@@ -521,6 +522,20 @@ class JsonViewerPanel(
 
     init {
         updateToggleState()
+    }
+
+    /**
+     * Some EDT dispatches run without implicit read access; editor layout (soft wraps, etc.)
+     * reads the document and requires a read lock — see jb.gg/ij-platform-threading.
+     */
+    private fun validateTreeSuper() {
+        super.validateTree()
+    }
+
+    override fun validateTree() {
+        ApplicationManager.getApplication().runReadAction {
+            validateTreeSuper()
+        }
     }
 
     // ── Disposable — clean up listeners and timers ─────────────────────────
