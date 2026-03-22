@@ -41,8 +41,10 @@ A **JSON viewer and notes** plugin for **all JetBrains IDEs** (IntelliJ IDEA, Py
 
 ## Installation
 
+**Marketplace:** [JSON Notes on JetBrains Marketplace](https://plugins.jetbrains.com/plugin/30568-json-notes)
+
 1. In your JetBrains IDE: **Settings/Preferences → Plugins → Marketplace**.
-2. Search for **JSON Notes**.
+2. Search for **JSON Notes** (or open the [Marketplace listing](https://plugins.jetbrains.com/plugin/30568-json-notes) in a browser).
 3. Install and restart the IDE.
 
 Or install from disk: **Settings → Plugins → ⚙️ → Install Plugin from Disk** and select the built `*.zip` from the project’s `build/distributions/` folder.
@@ -84,6 +86,8 @@ The idea for this plugin was inspired by the [Online JSON Viewer](https://jsonvi
 ---
 
 ## JetBrains Marketplace
+
+**Plugin page:** [plugins.jetbrains.com/plugin/30568-json-notes](https://plugins.jetbrains.com/plugin/30568-json-notes)
 
 When you publish or update the plugin on [JetBrains Marketplace](https://plugins.jetbrains.com/), use the description from `plugin.xml` (or the one in `build.gradle.kts` if you use the Gradle plugin to generate metadata). The **plugin description** is already set in this repo and includes credit to [jsonviewer.stack.hu](https://jsonviewer.stack.hu/).
 
