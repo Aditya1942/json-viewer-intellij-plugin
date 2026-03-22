@@ -81,6 +81,38 @@
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift J"/>
         </action>
         <action
+            id="JsonViewer.OpenWithNewTab"
+            class="com.jsonviewer.JsonNotesOpenWithNewTabAction"
+            text="Open JSON Notes with New Tab"
+            description="Show the JSON Notes tool window and create a new tab there"
+            icon="AllIcons.FileTypes.Json"
+        >
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift alt N"/>
+        </action>
+        <action
+            id="JsonViewer.NewTab"
+            class="com.jsonviewer.JsonNotesNewTabAction"
+            text="New JSON Notes Tab"
+            description="Create a new tab in JSON Notes (tool window or main editor)"
+            icon="AllIcons.Actions.AddFile"
+        >
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift alt T"/>
+        </action>
+        <action
+            id="JsonViewer.NextTab"
+            class="com.jsonviewer.JsonNotesNextTabAction"
+            text="Next JSON Notes Tab"
+            description="Switch to the next JSON Notes tab"
+            icon="AllIcons.Actions.Forward"
+        />
+        <action
+            id="JsonViewer.PrevTab"
+            class="com.jsonviewer.JsonNotesPrevTabAction"
+            text="Previous JSON Notes Tab"
+            description="Switch to the previous JSON Notes tab"
+            icon="AllIcons.Actions.Back"
+        />
+        <action
             id="JsonViewer.OpenInEditor"
             class="com.jsonviewer.OpenJsonNotesInEditorAction"
             text="Open JSON Notes in Editor"
@@ -90,5 +122,23 @@
             <add-to-group group-id="ToolsMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift alt J"/>
         </action>
+        <action
+            id="JsonViewer.OpenInEditorWithNewTab"
+            class="com.jsonviewer.OpenJsonNotesInEditorWithNewTabAction"
+            text="Open JSON Notes in Editor with New Tab"
+            description="Open JSON Notes in the main editor area and create a new tab"
+            icon="AllIcons.FileTypes.Json"
+        >
+            <keyboard-shortcut keymap="$default" first-keystroke="alt meta J" os="mac"/>
+        </action>
+        <group id="JsonViewer.KeymapGroup" text="JSON Notes" searchable="true">
+            <reference ref="JsonViewer.Open"/>
+            <reference ref="JsonViewer.OpenWithNewTab"/>
+            <reference ref="JsonViewer.NewTab"/>
+            <reference ref="JsonViewer.NextTab"/>
+            <reference ref="JsonViewer.PrevTab"/>
+            <reference ref="JsonViewer.OpenInEditor"/>
+            <reference ref="JsonViewer.OpenInEditorWithNewTab"/>
+        </group>
     </actions>
 </idea-plugin>

@@ -9,12 +9,14 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.openapi.wm.ToolWindowManager
@@ -22,6 +24,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
+import com.intellij.ui.table.JBTable
 import com.intellij.ui.content.ContentFactory
 import com.intellij.util.ui.JBUI
 import com.jsonviewer.ui.ideSeparatorColor
@@ -42,6 +45,7 @@ import java.util.ArrayDeque
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.*
+import javax.swing.table.DefaultTableModel
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 
@@ -77,11 +81,35 @@ class JsonViewerPanel(
 
     companion object {
         private val LOG = Logger.getInstance(JsonViewerPanel::class.java)
+
+        /** Matches [com.intellij.toolWindow] id in plugin.xml. */
+        const val TOOL_WINDOW_ID: String = "JSON Notes"
+
         private const val ROOT_CARD_MAIN = "main"
         private const val ROOT_CARD_NOTES_LIST = "notesListFull"
         private const val ROOT_CARD_SETTINGS = "settingsFull"
         private const val NOTES_HEADER_DEFAULT = "notesHeaderDefault"
         private const val NOTES_HEADER_SEARCH = "notesHeaderSearch"
+
+        internal fun findJsonViewerPanel(project: Project): JsonViewerPanel? {
+            var c: Component? = KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
+            while (c != null) {
+                if (c is JsonViewerPanel) return c
+                c = c.parent
+            }
+            val selected = FileEditorManager.getInstance(project).selectedEditor
+            if (selected is JsonNotesFileEditor) {
+                return selected.viewerPanel()
+            }
+            return findJsonViewerPanelFromToolWindow(project)
+        }
+
+        internal fun findJsonViewerPanelFromToolWindow(project: Project): JsonViewerPanel? {
+            val tw = ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID) ?: return null
+            val contents = tw.contentManager.contents
+            if (contents.isEmpty()) return null
+            return contents[0].component as? JsonViewerPanel
+        }
     }
 
     // ── View mode ──
@@ -213,6 +241,8 @@ class JsonViewerPanel(
     private val settingsHideMinifyCb = JCheckBox("Hide minify")
     private val settingsHideViewerCb = JCheckBox("Hide viewer")
     private val settingsHideOpenInEditorCb = JCheckBox("Hide open in main editor")
+    /** Keyboard shortcuts table model; rows match [JsonNotesShortcutsUi.ACTION_ROWS]. */
+    private var settingsShortcutsTableModel: DefaultTableModel? = null
 
     private val pasteBtn = actionIconButton(AllIcons.Actions.MenuPaste, "Paste") { pasteFromClipboard() }
     private val copyBtn = actionIconButton(AllIcons.Actions.Copy, "Copy") { copyToClipboard() }
@@ -433,6 +463,67 @@ class JsonViewerPanel(
                     maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(120))
                     add(toolbarCheckboxGrid)
                 }
+            )
+            add(Box.createVerticalStrut(JBUI.scale(16)))
+            add(
+                JBLabel("Keyboard shortcuts").apply {
+                    font = font.deriveFont(Font.BOLD, 13f)
+                    alignmentX = Component.LEFT_ALIGNMENT
+                },
+            )
+            add(Box.createVerticalStrut(JBUI.scale(6)))
+            add(
+                JBLabel(
+                    "Manage shortcuts in IDE Settings → Keymap (search \"JSON Notes\"). " +
+                        "Changes apply after you close the Keymap dialog.",
+                ).apply {
+                    alignmentX = Component.LEFT_ALIGNMENT
+                },
+            )
+            add(Box.createVerticalStrut(JBUI.scale(8)))
+            add(
+                JBScrollPane(
+                    JBTable(
+                        object : DefaultTableModel(
+                            JsonNotesShortcutsUi.ACTION_ROWS.map { row ->
+                                arrayOf<Any>(
+                                    row.second,
+                                    JsonNotesShortcutsUi.shortcutText(row.first),
+                                )
+                            }.toTypedArray(),
+                            arrayOf("Action", "Shortcut"),
+                        ) {
+                            override fun isCellEditable(row: Int, column: Int): Boolean = false
+                        }.also { settingsShortcutsTableModel = it },
+                    ).apply {
+                        setShowGrid(true)
+                        autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
+                        rowHeight = JBUI.scale(22)
+                        preferredScrollableViewportSize = Dimension(
+                            Int.MAX_VALUE,
+                            JBUI.scale(22) * JsonNotesShortcutsUi.ACTION_ROWS.size.coerceAtMost(10) + JBUI.scale(24),
+                        )
+                        columnModel.getColumn(0).preferredWidth = JBUI.scale(280)
+                        columnModel.getColumn(1).preferredWidth = JBUI.scale(220)
+                    },
+                ).apply {
+                    border = JBUI.Borders.empty()
+                    alignmentX = Component.LEFT_ALIGNMENT
+                    maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(22) * JsonNotesShortcutsUi.ACTION_ROWS.size.coerceAtMost(10) + JBUI.scale(40))
+                },
+            )
+            add(Box.createVerticalStrut(JBUI.scale(8)))
+            add(
+                JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                    isOpaque = false
+                    alignmentX = Component.LEFT_ALIGNMENT
+                    maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(36))
+                    add(
+                        JButton("Edit keymap…").apply {
+                            addActionListener { openIdeKeymapSettings() }
+                        },
+                    )
+                },
             )
             if (DevMode.isDevIconsExplorerEnabled()) {
                 add(Box.createVerticalStrut(JBUI.scale(16)))
@@ -684,6 +775,18 @@ class JsonViewerPanel(
         openJsonNotesInMainEditor(project)
     }
 
+    internal fun performNewTab() {
+        newTab()
+    }
+
+    internal fun performNavigateTab(delta: Int) {
+        navigateTab(delta)
+    }
+
+    internal fun performOpenInMainEditor() {
+        openInMainEditor()
+    }
+
     private fun deleteTab() {
         if (tabs.size <= 1) {
             // Clear the last tab instead of deleting
@@ -803,6 +906,23 @@ class JsonViewerPanel(
         settingsHideMinifyCb.isSelected = uiSettings.hideMinify()
         settingsHideViewerCb.isSelected = uiSettings.hideViewer()
         settingsHideOpenInEditorCb.isSelected = uiSettings.hideOpenInMainEditor()
+        val tm = settingsShortcutsTableModel
+        if (tm != null) {
+            for (i in JsonNotesShortcutsUi.ACTION_ROWS.indices) {
+                val actionId = JsonNotesShortcutsUi.ACTION_ROWS[i].first
+                tm.setValueAt(JsonNotesShortcutsUi.shortcutText(actionId), i, 1)
+            }
+        }
+    }
+
+    /** Opens IDE Settings → Keymap (non-modal) so it works from the full-screen settings overlay. */
+    private fun openIdeKeymapSettings() {
+        val p = ProjectManager.getInstance().openProjects.firstOrNull { !it.isDisposed }
+            ?: if (!project.isDisposed) project else ProjectManager.getInstance().defaultProject
+        if (p.isDisposed) return
+        ApplicationManager.getApplication().invokeLater {
+            ShowSettingsUtil.getInstance().showSettingsDialog(p, "preferences.keymap")
+        }
     }
 
     private fun persistFontFromSettingsUi() {
@@ -1308,11 +1428,9 @@ class JsonViewerPanel(
     }
 }
 
-private const val JSON_NOTES_TOOL_WINDOW_ID = "JSON Notes"
-
 /** Opens JSON Notes in the main editor and hides the bottom tool window. */
 internal fun openJsonNotesInMainEditor(project: Project) {
     val file = JsonNotesEditorVirtualFileService.getInstance(project).getOrCreateFile()
     FileEditorManager.getInstance(project).openFile(file, true)
-    ToolWindowManager.getInstance(project).getToolWindow(JSON_NOTES_TOOL_WINDOW_ID)?.hide()
+    ToolWindowManager.getInstance(project).getToolWindow(JsonViewerPanel.TOOL_WINDOW_ID)?.hide()
 }

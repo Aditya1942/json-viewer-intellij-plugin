@@ -73,6 +73,9 @@ class JsonNotesFileEditor(
      */
     override fun getData(dataId: String): Any? = panel.getData(dataId)
 
+    /** For keyboard shortcuts and actions that need the root [JsonViewerPanel]. */
+    internal fun viewerPanel(): JsonViewerPanel = panel
+
     override fun dispose() {
         Disposer.dispose(panel)
     }

@@ -15,7 +15,7 @@ class OpenJsonViewerAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("JSON Notes")
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(JsonViewerPanel.TOOL_WINDOW_ID)
         toolWindow?.show()
     }
 
