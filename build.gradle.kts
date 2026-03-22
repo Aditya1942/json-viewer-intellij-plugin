@@ -3,7 +3,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "1.9.21"
+    id("org.jetbrains.kotlin.jvm") version "2.0.21"
     id("org.jetbrains.intellij.platform") version "2.2.1"
 }
 
@@ -19,12 +19,14 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        // Dev / runIde: 2024.3+ parses Java 25 in GradleJvmSupportMatrix; 2023.3 throws on "25".
-        intellijIdeaCommunity("2024.3")
+        // IC 2024.3.x fails to initialize the Gradle plugin when compatibility data references JDK 25
+        // (JavaVersion.parse("25") throws). 2025.1+ includes an updated matrix / parser for runIde on JDK 25 hosts.
+        intellijIdeaCommunity("2025.1")
     }
 }
 
 kotlin {
+    // Kotlin 2.x + IC 2025.1 build fine on 17; use 21 locally if you want to match the verifier hint for the platform SDK.
     jvmToolchain(17)
 }
 
@@ -68,7 +70,8 @@ intellijPlatform {
         """.trimIndent()
 
         ideaVersion {
-            sinceBuild = "233"
+            // Align with dev SDK; plugin still targets broad compatibility via API choices.
+            sinceBuild = "241"
             untilBuild = provider { null }
         }
 

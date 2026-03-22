@@ -44,6 +44,11 @@
             serviceImplementation="com.jsonviewer.TabStorageService"
         />
 
+        <!-- Application-level UI preferences (font, etc.) -->
+        <applicationService
+            serviceImplementation="com.jsonviewer.JsonViewerUiSettings"
+        />
+
         <!-- One virtual file per project for main-editor JSON Notes tab -->
         <projectService
             serviceImplementation="com.jsonviewer.JsonNotesEditorVirtualFileService"

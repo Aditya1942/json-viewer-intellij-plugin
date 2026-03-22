@@ -8,7 +8,11 @@ import java.awt.Font
  */
 object PluginFonts {
     /** Monospaced font for code display — prefers JetBrains Mono, falls back to system monospaced. */
-    val MONO: Font = Font("JetBrains Mono", Font.PLAIN, 13).let { f ->
-        if (f.family == "JetBrains Mono") f else Font(Font.MONOSPACED, Font.PLAIN, 13)
+    val MONO: Font = Font(defaultFamilyName(), Font.PLAIN, 13)
+
+    /** Logical family name for persisted UI settings (JetBrains Mono when installed, else [Font.MONOSPACED]). */
+    fun defaultFamilyName(): String {
+        val probe = Font("JetBrains Mono", Font.PLAIN, 12)
+        return if (probe.family == "JetBrains Mono") "JetBrains Mono" else Font.MONOSPACED
     }
 }

@@ -68,6 +68,7 @@ class JsonViewerPanel(
         private val LOG = Logger.getInstance(JsonViewerPanel::class.java)
         private const val ROOT_CARD_MAIN = "main"
         private const val ROOT_CARD_NOTES_LIST = "notesListFull"
+        private const val ROOT_CARD_SETTINGS = "settingsFull"
         private const val NOTES_HEADER_DEFAULT = "notesHeaderDefault"
         private const val NOTES_HEADER_SEARCH = "notesHeaderSearch"
     }
@@ -78,6 +79,7 @@ class JsonViewerPanel(
 
     // ── Tab storage ──
     private val storageService = TabStorageService.getInstance()
+    private val uiSettings = JsonViewerUiSettings.getInstance()
     private val tabs = mutableListOf<SavedTab>()
     private var activeTabId: String = ""
 
@@ -89,6 +91,7 @@ class JsonViewerPanel(
     private val rootStack = JPanel(CardLayout())
     private var notesListOverlayOpen = false
     private var notesListSearchMode = false
+    private var settingsOverlayOpen = false
 
     private val notesListBackBtn = tabNavIconButton(AllIcons.Actions.Back, "Back to editor")
     private val notesListRowsPanel = JPanel().apply {
@@ -162,6 +165,18 @@ class JsonViewerPanel(
     private val openInEditorBtn = tabNavIconButton(AllIcons.Actions.EditSource, "Open in main editor")
     private val deleteTabBtn = tabNavIconButton(deleteIcon(), "Delete tab")
     private val listTabsBtn = tabNavIconButton(AllIcons.Actions.ListFiles, "All notes (list)")
+    private val settingsTabsBtn = tabNavIconButton(AllIcons.General.Settings, "Settings")
+    private val settingsBackBtn = tabNavIconButton(AllIcons.Actions.Back, "Back to editor")
+    private val settingsFontFamilyCombo = JComboBox<String>()
+    private val settingsFontSizeSpinner = JSpinner(
+        SpinnerNumberModel(13, JsonViewerUiSettings.MIN_FONT_SIZE, JsonViewerUiSettings.MAX_FONT_SIZE, 1)
+    )
+    private val settingsOkBtn = JButton("OK").apply {
+        margin = JBUI.insets(4, 16, 4, 16)
+    }
+    private val settingsCancelBtn = JButton("Cancel").apply {
+        margin = JBUI.insets(4, 16, 4, 16)
+    }
 
     init {
         // ── Header (no title; responsive wrap) ──────────────────────────────
@@ -219,6 +234,7 @@ class JsonViewerPanel(
         tabBarRight.add(deleteTabBtn)
         tabBarRight.add(headerVerticalSeparator())
         tabBarRight.add(listTabsBtn)
+        tabBarRight.add(settingsTabsBtn)
 
         tabBar.add(tabBarLeft, BorderLayout.WEST)
         tabBar.add(tabBarRight, BorderLayout.EAST)
@@ -297,6 +313,105 @@ class JsonViewerPanel(
             }
         )
 
+        // ── Full-area settings (same shell as All notes) ─────────────────────
+        GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames
+            .sorted()
+            .forEach { settingsFontFamilyCombo.addItem(it) }
+        settingsFontFamilyCombo.maximumRowCount = 16
+
+        val settingsTitleLabel = JBLabel("Settings").apply {
+            font = font.deriveFont(Font.BOLD, 14f)
+            verticalAlignment = SwingConstants.CENTER
+            alignmentX = Component.LEFT_ALIGNMENT
+            alignmentY = Component.CENTER_ALIGNMENT
+        }
+        val settingsHeaderRow = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            isOpaque = false
+            border = JBUI.Borders.empty(4, JBUI.scale(6), 4, JBUI.scale(6))
+            add(settingsBackBtn.apply { alignmentY = Component.CENTER_ALIGNMENT })
+            add(Box.createHorizontalStrut(JBUI.scale(8)))
+            add(settingsTitleLabel)
+            add(Box.createHorizontalGlue())
+        }
+        val fontSectionTitle = JBLabel("Font").apply {
+            font = font.deriveFont(Font.BOLD, 13f)
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        val settingsFontFamilyRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(4))).apply {
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(36))
+            add(JBLabel("Font family:"))
+            add(
+                settingsFontFamilyCombo.apply {
+                    alignmentY = Component.CENTER_ALIGNMENT
+                }
+            )
+        }
+        val settingsFontSizeRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(4))).apply {
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(36))
+            add(JBLabel("Font size:"))
+            add(settingsFontSizeSpinner)
+        }
+        val settingsScrollContent = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            alignmentX = Component.LEFT_ALIGNMENT
+            border = JBUI.Borders.empty(8, JBUI.scale(12), 8, JBUI.scale(12))
+            add(fontSectionTitle)
+            add(Box.createVerticalStrut(JBUI.scale(8)))
+            add(settingsFontFamilyRow)
+            add(Box.createVerticalStrut(JBUI.scale(6)))
+            add(settingsFontSizeRow)
+            add(Box.createVerticalGlue())
+        }
+        val settingsScroll = JBScrollPane(settingsScrollContent).apply {
+            border = JBUI.Borders.empty()
+            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+            verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+        }
+        val settingsFooterRow = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(8), 0)).apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(8, JBUI.scale(12), 8, JBUI.scale(12))
+            add(settingsCancelBtn)
+            add(settingsOkBtn)
+        }
+        val settingsOverlay = JPanel(BorderLayout()).apply {
+            add(
+                JPanel(BorderLayout()).apply {
+                    border = JBUI.Borders.customLine(ideSeparatorColor(), 0, 0, 1, 0)
+                    minimumSize = Dimension(0, JBUI.scale(36))
+                    add(settingsHeaderRow, BorderLayout.CENTER)
+                },
+                BorderLayout.NORTH
+            )
+            add(settingsScroll, BorderLayout.CENTER)
+            add(
+                JPanel(BorderLayout()).apply {
+                    border = JBUI.Borders.customLine(ideSeparatorColor(), 1, 0, 0, 0)
+                    add(settingsFooterRow, BorderLayout.EAST)
+                },
+                BorderLayout.SOUTH
+            )
+        }
+        settingsBackBtn.addActionListener { cancelSettingsOverlay() }
+        settingsOkBtn.addActionListener { applySettingsAndClose() }
+        settingsCancelBtn.addActionListener { cancelSettingsOverlay() }
+        settingsOverlay.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(
+            KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+            "closeSettingsOverlay"
+        )
+        settingsOverlay.actionMap.put(
+            "closeSettingsOverlay",
+            object : AbstractAction() {
+                override fun actionPerformed(e: ActionEvent) {
+                    cancelSettingsOverlay()
+                }
+            }
+        )
+
         // ── Shared search bar (hidden by default) ─────────────────────────
         searchPanel.isVisible = false
         searchPanel.onSearch = { query -> dispatchSearch(query) }
@@ -312,6 +427,7 @@ class JsonViewerPanel(
 
         rootStack.add(mainViewPanel, ROOT_CARD_MAIN)
         rootStack.add(notesListOverlay, ROOT_CARD_NOTES_LIST)
+        rootStack.add(settingsOverlay, ROOT_CARD_SETTINGS)
 
         // ── Root ────────────────────────────────────────────────────────────
         add(rootStack, BorderLayout.CENTER)
@@ -325,6 +441,7 @@ class JsonViewerPanel(
         openInEditorBtn.addActionListener { openInMainEditor() }
         deleteTabBtn.addActionListener { deleteTab() }
         listTabsBtn.addActionListener { showNotesListOverlay() }
+        settingsTabsBtn.addActionListener { showSettingsOverlay() }
 
         // ── Cmd+F at root level → open shared search bar ─────────────────
         val im = getInputMap(WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
@@ -341,6 +458,8 @@ class JsonViewerPanel(
             SwingUtilities.invokeLater { applyTabs(updatedTabs, updatedActiveId) }
         }
         storageService.addListener(storageListener!!)
+
+        applyUiSettingsToEditor()
     }
 
     // ── Tab loading / sync ───────────────────────────────────────────────────
@@ -515,6 +634,7 @@ class JsonViewerPanel(
 
     private fun showNotesListOverlay() {
         closeSearch()
+        settingsOverlayOpen = false
         showRootCard(ROOT_CARD_NOTES_LIST)
         notesListOverlayOpen = true
         notesListSearchMode = false
@@ -533,6 +653,66 @@ class JsonViewerPanel(
         showNotesListHeaderCard(NOTES_HEADER_DEFAULT)
         showRootCard(ROOT_CARD_MAIN)
         reapplySearch()
+    }
+
+    private fun showSettingsOverlay() {
+        closeSearch()
+        if (notesListOverlayOpen) {
+            notesListContentDebounceTimer.stop()
+            notesListSearchGeneration.incrementAndGet()
+            notesListOverlayOpen = false
+            notesListSearchMode = false
+            notesListSearchField.text = ""
+            showNotesListHeaderCard(NOTES_HEADER_DEFAULT)
+        }
+        settingsOverlayOpen = true
+        syncSettingsUiFromState()
+        showRootCard(ROOT_CARD_SETTINGS)
+        settingsOkBtn.requestFocusInWindow()
+    }
+
+    private fun hideSettingsOverlay() {
+        settingsOverlayOpen = false
+        showRootCard(ROOT_CARD_MAIN)
+        reapplySearch()
+    }
+
+    /** Discard edits and close (Back, Cancel, Escape). */
+    private fun cancelSettingsOverlay() {
+        if (!settingsOverlayOpen) return
+        syncSettingsUiFromState()
+        hideSettingsOverlay()
+    }
+
+    /** Persist font from the form, apply to the text editor, and close. */
+    private fun applySettingsAndClose() {
+        if (!settingsOverlayOpen) return
+        persistFontFromSettingsUi()
+        hideSettingsOverlay()
+    }
+
+    private fun syncSettingsUiFromState() {
+        val fam = uiSettings.fontFamily()
+        var idx = -1
+        for (i in 0 until settingsFontFamilyCombo.itemCount) {
+            if (settingsFontFamilyCombo.getItemAt(i) == fam) {
+                idx = i
+                break
+            }
+        }
+        settingsFontFamilyCombo.selectedIndex = if (idx >= 0) idx else 0
+        settingsFontSizeSpinner.value = uiSettings.fontSize()
+    }
+
+    private fun persistFontFromSettingsUi() {
+        val family = settingsFontFamilyCombo.selectedItem as? String ?: return
+        val size = (settingsFontSizeSpinner.value as? Number)?.toInt() ?: return
+        uiSettings.updateFont(family, size)
+        textContent.applyFontSettings(uiSettings.fontFamily(), uiSettings.fontSize())
+    }
+
+    private fun applyUiSettingsToEditor() {
+        textContent.applyFontSettings(uiSettings.fontFamily(), uiSettings.fontSize())
     }
 
     private fun enterNotesListSearchMode() {

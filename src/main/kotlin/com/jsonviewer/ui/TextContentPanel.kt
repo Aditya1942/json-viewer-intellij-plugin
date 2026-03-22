@@ -11,12 +11,14 @@ import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
+import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.JBColor
+import com.jsonviewer.JsonViewerUiSettings
 import java.awt.BorderLayout
 import java.awt.Color
 import javax.swing.JPanel
@@ -93,6 +95,26 @@ class TextContentPanel(
         }, this)
 
         add(editor.component, BorderLayout.CENTER)
+    }
+
+    /**
+     * Updates the editor's font family and size (plain / bold / italic variants) without changing colors.
+     * Uses a clone of the current color scheme so the main IDE editor scheme is untouched.
+     */
+    fun applyFontSettings(family: String, size: Int) {
+        val edEx = editor as? EditorEx ?: return
+        val sz = size.coerceIn(JsonViewerUiSettings.MIN_FONT_SIZE, JsonViewerUiSettings.MAX_FONT_SIZE)
+        val name = family.ifBlank { PluginFonts.defaultFamilyName() }
+        val globals = EditorColorsManager.getInstance().globalScheme
+        // During tool window init, clone() can return null — use a safe cast and fall back to global.
+        val scheme = (edEx.colorsScheme.clone() as? EditorColorsScheme)
+            ?: (globals.clone() as? EditorColorsScheme)
+            ?: return
+        scheme.setEditorFontName(name)
+        scheme.setEditorFontSize(sz)
+        edEx.colorsScheme = scheme
+        editor.contentComponent.revalidate()
+        editor.contentComponent.repaint()
     }
 
     fun getText(): String = document.text
