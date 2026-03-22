@@ -3,12 +3,16 @@ package com.jsonviewer
 import com.google.gson.JsonParser
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.DataProvider
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
+import com.intellij.openapi.editor.Document
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
@@ -63,8 +67,13 @@ class JsonViewerToolWindowFactory : ToolWindowFactory, DumbAware {
 // ──────────────────────────────────────────────────────────────────────────────
 
 class JsonViewerPanel(
-    private val project: Project
-) : JPanel(BorderLayout()), Disposable {
+    private val project: Project,
+    /**
+     * Main editor only: [com.intellij.openapi.fileEditor.FileDocumentManager] document for [JsonNotesVirtualFile].
+     * Tool window uses null and a standalone document.
+     */
+    private val sharedEditorDocument: Document? = null
+) : JPanel(BorderLayout()), Disposable, DataProvider {
 
     companion object {
         private val LOG = Logger.getInstance(JsonViewerPanel::class.java)
@@ -86,8 +95,27 @@ class JsonViewerPanel(
     private var activeTabId: String = ""
 
     // ── Content panels ──
-    private val textContent = TextContentPanel(onTextChanged = { text -> onActiveTabTextChanged(text) })
+    private val textContent = TextContentPanel(
+        project = project,
+        onTextChanged = { text -> onActiveTabTextChanged(text) },
+        sharedEditorDocument = sharedEditorDocument
+    )
     private val viewerContent = ViewerContentPanel()
+
+    /**
+     * Main-editor [FileEditor] tabs build data context from the file editor component; without this,
+     * global Undo/Redo does not resolve the embedded [TextContentPanel] editor.
+     */
+    override fun getData(dataId: String): Any? {
+        if (CommonDataKeys.PROJECT.`is`(dataId)) return project
+        if (CommonDataKeys.EDITOR.`is`(dataId)) {
+            return if (viewMode == ViewMode.TEXT) textContent.editor else null
+        }
+        return null
+    }
+
+    /** Used by [JsonNotesFileEditor] implementing [com.intellij.openapi.fileEditor.TextEditor]. */
+    internal fun embeddedEditor(): Editor = textContent.editor
     private val contentStack = JPanel(CardLayout())
     /** Main chrome (tab bar + toolbar + editor) vs full-tool-window notes list. */
     private val rootStack = JPanel(CardLayout())
@@ -1260,18 +1288,10 @@ class JsonViewerPanel(
         updateToggleState()
     }
 
-    /**
-     * Some EDT dispatches run without implicit read access; editor layout (soft wraps, etc.)
-     * reads the document and requires a read lock — see jb.gg/ij-platform-threading.
-     */
-    private fun validateTreeSuper() {
-        super.validateTree()
-    }
-
     override fun validateTree() {
-        ApplicationManager.getApplication().runReadAction {
-            validateTreeSuper()
-        }
+        // Do not wrap in runReadAction: super.validateTree() lays out the editor scroll pane,
+        // which runs WriteIntentReadAction — that must not run inside ReadAction (IJ threading).
+        super.validateTree()
     }
 
     // ── Disposable — clean up listeners and timers ─────────────────────────

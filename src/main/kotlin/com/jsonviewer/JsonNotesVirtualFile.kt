@@ -16,8 +16,9 @@ class JsonNotesVirtualFile : LightVirtualFile(
     ""
 ) {
     init {
-        // Content is driven by [TabStorageService], not this buffer.
-        isWritable = false
+        // Tab JSON lives in [TabStorageService]; the VFS buffer is still updated via the file [Document].
+        // Writable + file-backed document is required for main-editor Undo/Redo (see JsonNotesFileEditor).
+        isWritable = true
     }
 
     companion object {

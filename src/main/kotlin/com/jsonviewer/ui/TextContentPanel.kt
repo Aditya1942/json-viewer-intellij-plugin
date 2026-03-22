@@ -2,11 +2,14 @@ package com.jsonviewer.ui
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.event.DocumentEvent
@@ -36,7 +39,10 @@ import javax.swing.Timer
 // ──────────────────────────────────────────────────────────────────────────────
 
 class TextContentPanel(
-    private val onTextChanged: (String) -> Unit = {}
+    private val project: Project,
+    private val onTextChanged: (String) -> Unit = {},
+    /** When non-null (main JSON Notes editor tab), must be [com.intellij.openapi.fileEditor.FileDocumentManager]'s document for that file so Undo/Redo matches the IDE file stack. */
+    private val sharedEditorDocument: Document? = null
 ) : JPanel(BorderLayout()), Searchable, Disposable {
 
     companion object {
@@ -51,7 +57,8 @@ class TextContentPanel(
     }
 
     private val document: Document
-    private val editor: Editor
+    /** Exposed so [com.jsonviewer.JsonViewerPanel] can supply [com.intellij.openapi.actionSystem.CommonDataKeys.EDITOR] for Undo/Redo in the main editor. */
+    internal val editor: Editor
     private var debounceTimer: Timer? = null
     private var suppressEvents = false
 
@@ -67,7 +74,7 @@ class TextContentPanel(
     init {
         val factory = EditorFactory.getInstance()
         val created = ReadAction.compute<Pair<Document, Editor>, RuntimeException> {
-            val doc = factory.createDocument("")
+            val doc = sharedEditorDocument ?: factory.createDocument("")
             val ed = factory.createEditor(doc).also { ed ->
                 ed.settings.apply {
                     isLineNumbersShown = true
@@ -119,16 +126,23 @@ class TextContentPanel(
 
     fun getText(): String = document.text
 
+    /** Caret/scroll read the editor model; must run under read access (not implied after [WriteCommandAction]). */
+    private fun moveCaretToOffsetAndScroll(offset: Int, scrollType: ScrollType) {
+        WriteIntentReadAction.run(Runnable {
+            editor.caretModel.moveToOffset(offset)
+            editor.scrollingModel.scrollToCaret(scrollType)
+        })
+    }
+
     /** Set text and fire onTextChanged. */
     fun setText(text: String) {
         // Cancel any pending detection — we detect immediately below
         detectionTimer?.stop()
         if (document.text != text) {
-            WriteCommandAction.runWriteCommandAction(null) {
+            WriteCommandAction.runWriteCommandAction(project) {
                 document.setText(text)
             }
-            editor.caretModel.moveToOffset(0)
-            editor.scrollingModel.scrollToCaret(com.intellij.openapi.editor.ScrollType.MAKE_VISIBLE)
+            moveCaretToOffsetAndScroll(0, ScrollType.MAKE_VISIBLE)
         }
         detectAndApplyMode(text)
     }
@@ -139,11 +153,10 @@ class TextContentPanel(
         // Cancel any pending detection — we detect immediately below
         detectionTimer?.stop()
         if (document.text != text) {
-            WriteCommandAction.runWriteCommandAction(null) {
+            WriteCommandAction.runWriteCommandAction(project) {
                 document.setText(text)
             }
-            editor.caretModel.moveToOffset(0)
-            editor.scrollingModel.scrollToCaret(com.intellij.openapi.editor.ScrollType.MAKE_VISIBLE)
+            moveCaretToOffsetAndScroll(0, ScrollType.MAKE_VISIBLE)
         }
         suppressEvents = false
         detectAndApplyMode(text)
@@ -241,8 +254,7 @@ class TextContentPanel(
     private fun scrollToCurrentMatch() {
         if (currentMatchIndex < 0 || currentMatchIndex >= searchMatchRanges.size) return
         val (start, _) = searchMatchRanges[currentMatchIndex]
-        editor.caretModel.moveToOffset(start)
-        editor.scrollingModel.scrollToCaret(com.intellij.openapi.editor.ScrollType.CENTER)
+        moveCaretToOffsetAndScroll(start, ScrollType.CENTER)
     }
 
     /** Stop all debounce timers. Call when the panel is being disposed. */
@@ -462,26 +474,29 @@ class TextContentPanel(
      * Only multi-line `{…}` and `[…]` blocks get fold regions.
      */
     private fun updateFoldRegions() {
-        editor.foldingModel.runBatchFoldingOperation {
-            // Clear existing fold regions
-            for (region in editor.foldingModel.allFoldRegions) {
-                editor.foldingModel.removeFoldRegion(region)
-            }
-            val text = document.text
-            if (text.isBlank()) return@runBatchFoldingOperation
+        // Timer / arbitrary EDT callbacks do not hold read access; folding APIs require it.
+        WriteIntentReadAction.run(Runnable {
+            editor.foldingModel.runBatchFoldingOperation {
+                // Clear existing fold regions
+                for (region in editor.foldingModel.allFoldRegions) {
+                    editor.foldingModel.removeFoldRegion(region)
+                }
+                val text = document.text
+                if (text.isBlank()) return@runBatchFoldingOperation
 
-            val foldRanges = computeJsonFoldRanges(text)
-            for ((start, end, placeholder) in foldRanges) {
-                val startLine = document.getLineNumber(start)
-                val endLine = document.getLineNumber(end)
-                // Only create fold regions for blocks that span multiple lines
-                if (endLine > startLine && start + 1 < end) {
-                    editor.foldingModel.addFoldRegion(start + 1, end, placeholder)?.apply {
-                        isExpanded = true  // Start expanded so user sees full content
+                val foldRanges = computeJsonFoldRanges(text)
+                for ((start, end, placeholder) in foldRanges) {
+                    val startLine = document.getLineNumber(start)
+                    val endLine = document.getLineNumber(end)
+                    // Only create fold regions for blocks that span multiple lines
+                    if (endLine > startLine && start + 1 < end) {
+                        editor.foldingModel.addFoldRegion(start + 1, end, placeholder)?.apply {
+                            isExpanded = true  // Start expanded so user sees full content
+                        }
                     }
                 }
             }
-        }
+        })
     }
 
     /**
@@ -524,11 +539,13 @@ class TextContentPanel(
 
     /** Remove all fold regions from the editor. */
     private fun clearFoldRegions() {
-        editor.foldingModel.runBatchFoldingOperation {
-            for (region in editor.foldingModel.allFoldRegions) {
-                editor.foldingModel.removeFoldRegion(region)
+        WriteIntentReadAction.run(Runnable {
+            editor.foldingModel.runBatchFoldingOperation {
+                for (region in editor.foldingModel.allFoldRegions) {
+                    editor.foldingModel.removeFoldRegion(region)
+                }
             }
-        }
+        })
     }
 
     override fun dispose() {
