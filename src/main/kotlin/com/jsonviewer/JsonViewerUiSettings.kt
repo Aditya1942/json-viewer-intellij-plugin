@@ -17,8 +17,14 @@ import com.jsonviewer.ui.PluginFonts
 data class JsonViewerUiState(
     @Tag("fontFamily") var fontFamily: String = "",
     @Tag("fontSize") var fontSize: Int = 13,
+    @Tag("hideCopy") var hideCopy: Boolean = false,
+    @Tag("hidePaste") var hidePaste: Boolean = false,
+    @Tag("hideFormat") var hideFormat: Boolean = false,
+    @Tag("hideMinify") var hideMinify: Boolean = false,
+    @Tag("hideViewer") var hideViewer: Boolean = false,
+    @Tag("hideOpenInMainEditor") var hideOpenInMainEditor: Boolean = false,
 ) {
-    constructor() : this("", 13)
+    constructor() : this("", 13, false, false, false, false, false, false)
 }
 
 @State(
@@ -45,6 +51,34 @@ class JsonViewerUiSettings : PersistentStateComponent<JsonViewerUiState> {
     fun updateFont(family: String, size: Int) {
         myState.fontFamily = family.trim()
         myState.fontSize = size.coerceIn(MIN_FONT_SIZE, MAX_FONT_SIZE)
+    }
+
+    fun hideCopy(): Boolean = myState.hideCopy
+
+    fun hidePaste(): Boolean = myState.hidePaste
+
+    fun hideFormat(): Boolean = myState.hideFormat
+
+    fun hideMinify(): Boolean = myState.hideMinify
+
+    fun hideViewer(): Boolean = myState.hideViewer
+
+    fun hideOpenInMainEditor(): Boolean = myState.hideOpenInMainEditor
+
+    fun updateToolbarVisibility(
+        hideCopy: Boolean,
+        hidePaste: Boolean,
+        hideFormat: Boolean,
+        hideMinify: Boolean,
+        hideViewer: Boolean,
+        hideOpenInMainEditor: Boolean,
+    ) {
+        myState.hideCopy = hideCopy
+        myState.hidePaste = hidePaste
+        myState.hideFormat = hideFormat
+        myState.hideMinify = hideMinify
+        myState.hideViewer = hideViewer
+        myState.hideOpenInMainEditor = hideOpenInMainEditor
     }
 
     private fun normalizeState() {

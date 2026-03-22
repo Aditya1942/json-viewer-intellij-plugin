@@ -1,4 +1,5 @@
 import java.util.Properties
+import org.jetbrains.intellij.platform.gradle.tasks.RunIdeTask
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
@@ -84,4 +85,9 @@ intellijPlatform {
 // Skip buildSearchableOptions — not needed for a tool window plugin
 tasks.named("buildSearchableOptions") {
     enabled = false
+}
+
+// Dev-only: enables AllIcons explorer in JSON Notes settings (see DevMode.kt)
+tasks.named<RunIdeTask>("runIde") {
+    jvmArgs("-Djson.notes.dev.icons=true")
 }

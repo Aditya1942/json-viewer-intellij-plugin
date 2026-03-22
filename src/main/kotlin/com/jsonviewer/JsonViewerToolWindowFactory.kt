@@ -24,6 +24,8 @@ import com.jsonviewer.ui.ideSeparatorColor
 import com.jsonviewer.ui.SearchPanel
 import com.jsonviewer.ui.Searchable
 import com.jsonviewer.ui.TextContentPanel
+import com.jsonviewer.dev.DevIconsExplorerDialog
+import com.jsonviewer.dev.DevMode
 import com.jsonviewer.ui.ViewerContentPanel
 import com.jsonviewer.ui.installIconButtonHover
 import java.awt.*
@@ -162,9 +164,9 @@ class JsonViewerPanel(
     private val prevTabBtn = tabNavIconButton(AllIcons.Actions.Back, "Previous tab")
     private val nextTabBtn = tabNavIconButton(AllIcons.Actions.Forward, "Next tab")
     private val newTabBtn = tabNavIconButton(AllIcons.Actions.AddFile, "New tab")
-    private val openInEditorBtn = tabNavIconButton(AllIcons.Actions.EditSource, "Open in main editor")
+    private val openInEditorBtn = tabNavIconButton(AllIcons.General.FitContent, "Open in main editor")
     private val deleteTabBtn = tabNavIconButton(deleteIcon(), "Delete tab")
-    private val listTabsBtn = tabNavIconButton(AllIcons.Actions.ListFiles, "All notes (list)")
+    private val listTabsBtn = tabNavIconButton(AllIcons.General.Tree, "All notes (list)")
     private val settingsTabsBtn = tabNavIconButton(AllIcons.General.Settings, "Settings")
     private val settingsBackBtn = tabNavIconButton(AllIcons.Actions.Back, "Back to editor")
     private val settingsFontFamilyCombo = JComboBox<String>()
@@ -177,6 +179,20 @@ class JsonViewerPanel(
     private val settingsCancelBtn = JButton("Cancel").apply {
         margin = JBUI.insets(4, 16, 4, 16)
     }
+    private val settingsHideCopyCb = JCheckBox("Hide copy")
+    private val settingsHidePasteCb = JCheckBox("Hide paste")
+    private val settingsHideFormatCb = JCheckBox("Hide format")
+    private val settingsHideMinifyCb = JCheckBox("Hide minify")
+    private val settingsHideViewerCb = JCheckBox("Hide viewer")
+    private val settingsHideOpenInEditorCb = JCheckBox("Hide open in main editor")
+
+    private val pasteBtn = actionIconButton(AllIcons.Actions.MenuPaste, "Paste") { pasteFromClipboard() }
+    private val copyBtn = actionIconButton(AllIcons.Actions.Copy, "Copy") { copyToClipboard() }
+    private val formatBtn = actionIconButton(AllIcons.Diff.MagicResolveToolbar, "Format") { formatText() }
+    private val minifyBtn = actionIconButton(minifyIcon(), "Minify") { minifyText() }
+
+    /** Vertical rule between Text/Viewer toggles and the New tab group; hidden when mode toggles are hidden. */
+    private val headerAfterTextViewerSeparator = headerVerticalSeparator()
 
     init {
         // ── Header (no title; responsive wrap) ──────────────────────────────
@@ -192,7 +208,7 @@ class JsonViewerPanel(
         }
         headerLeft.add(textBtn)
         headerLeft.add(viewerBtn)
-        headerLeft.add(headerVerticalSeparator())
+        headerLeft.add(headerAfterTextViewerSeparator)
         headerLeft.add(newTabBtn)
         headerLeft.add(headerVerticalSeparator())
         headerLeft.add(prevTabBtn)
@@ -204,10 +220,10 @@ class JsonViewerPanel(
             isOpaque = false
             border = JBUI.Borders.emptyRight(JBUI.scale(4))
         }
-        headerRight.add(actionIconButton(AllIcons.Actions.MenuPaste, "Paste") { pasteFromClipboard() })
-        headerRight.add(actionIconButton(AllIcons.Actions.Copy, "Copy") { copyToClipboard() })
-        headerRight.add(actionIconButton(AllIcons.Diff.MagicResolveToolbar, "Format") { formatText() })
-        headerRight.add(actionIconButton(minifyIcon(), "Minify") { minifyText() })
+        headerRight.add(pasteBtn)
+        headerRight.add(copyBtn)
+        headerRight.add(formatBtn)
+        headerRight.add(minifyBtn)
 
         header.add(headerLeft, BorderLayout.WEST)
         header.add(headerRight, BorderLayout.EAST)
@@ -356,6 +372,20 @@ class JsonViewerPanel(
             add(JBLabel("Font size:"))
             add(settingsFontSizeSpinner)
         }
+        val toolbarSectionTitle = JBLabel("Toolbar").apply {
+            font = font.deriveFont(Font.BOLD, 13f)
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        val toolbarCheckboxGrid = JPanel(GridLayout(3, 2, JBUI.scale(12), JBUI.scale(6))).apply {
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            add(settingsHideCopyCb)
+            add(settingsHidePasteCb)
+            add(settingsHideFormatCb)
+            add(settingsHideMinifyCb)
+            add(settingsHideViewerCb)
+            add(settingsHideOpenInEditorCb)
+        }
         val settingsScrollContent = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             alignmentX = Component.LEFT_ALIGNMENT
@@ -365,6 +395,41 @@ class JsonViewerPanel(
             add(settingsFontFamilyRow)
             add(Box.createVerticalStrut(JBUI.scale(6)))
             add(settingsFontSizeRow)
+            add(Box.createVerticalStrut(JBUI.scale(16)))
+            add(toolbarSectionTitle)
+            add(Box.createVerticalStrut(JBUI.scale(8)))
+            add(
+                JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                    isOpaque = false
+                    alignmentX = Component.LEFT_ALIGNMENT
+                    maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(120))
+                    add(toolbarCheckboxGrid)
+                }
+            )
+            if (DevMode.isDevIconsExplorerEnabled()) {
+                add(Box.createVerticalStrut(JBUI.scale(16)))
+                add(
+                    JBLabel("Development").apply {
+                        font = font.deriveFont(Font.BOLD, 13f)
+                        alignmentX = Component.LEFT_ALIGNMENT
+                    }
+                )
+                add(Box.createVerticalStrut(JBUI.scale(6)))
+                add(
+                    JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(4))).apply {
+                        isOpaque = false
+                        alignmentX = Component.LEFT_ALIGNMENT
+                        maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(36))
+                        add(
+                            JButton("Browse AllIcons (dev)…").apply {
+                                addActionListener {
+                                    DevIconsExplorerDialog(project).show()
+                                }
+                            }
+                        )
+                    }
+                )
+            }
             add(Box.createVerticalGlue())
         }
         val settingsScroll = JBScrollPane(settingsScrollContent).apply {
@@ -460,6 +525,7 @@ class JsonViewerPanel(
         storageService.addListener(storageListener!!)
 
         applyUiSettingsToEditor()
+        applyHeaderToolbarVisibility()
     }
 
     // ── Tab loading / sync ───────────────────────────────────────────────────
@@ -688,6 +754,7 @@ class JsonViewerPanel(
     private fun applySettingsAndClose() {
         if (!settingsOverlayOpen) return
         persistFontFromSettingsUi()
+        persistToolbarFromSettingsUi()
         hideSettingsOverlay()
     }
 
@@ -702,6 +769,12 @@ class JsonViewerPanel(
         }
         settingsFontFamilyCombo.selectedIndex = if (idx >= 0) idx else 0
         settingsFontSizeSpinner.value = uiSettings.fontSize()
+        settingsHideCopyCb.isSelected = uiSettings.hideCopy()
+        settingsHidePasteCb.isSelected = uiSettings.hidePaste()
+        settingsHideFormatCb.isSelected = uiSettings.hideFormat()
+        settingsHideMinifyCb.isSelected = uiSettings.hideMinify()
+        settingsHideViewerCb.isSelected = uiSettings.hideViewer()
+        settingsHideOpenInEditorCb.isSelected = uiSettings.hideOpenInMainEditor()
     }
 
     private fun persistFontFromSettingsUi() {
@@ -709,6 +782,38 @@ class JsonViewerPanel(
         val size = (settingsFontSizeSpinner.value as? Number)?.toInt() ?: return
         uiSettings.updateFont(family, size)
         textContent.applyFontSettings(uiSettings.fontFamily(), uiSettings.fontSize())
+    }
+
+    private fun persistToolbarFromSettingsUi() {
+        uiSettings.updateToolbarVisibility(
+            hideCopy = settingsHideCopyCb.isSelected,
+            hidePaste = settingsHidePasteCb.isSelected,
+            hideFormat = settingsHideFormatCb.isSelected,
+            hideMinify = settingsHideMinifyCb.isSelected,
+            hideViewer = settingsHideViewerCb.isSelected,
+            hideOpenInMainEditor = settingsHideOpenInEditorCb.isSelected,
+        )
+        applyHeaderToolbarVisibility()
+    }
+
+    /** Show or hide header icon buttons according to persisted settings. */
+    private fun applyHeaderToolbarVisibility() {
+        copyBtn.isVisible = !uiSettings.hideCopy()
+        pasteBtn.isVisible = !uiSettings.hidePaste()
+        formatBtn.isVisible = !uiSettings.hideFormat()
+        minifyBtn.isVisible = !uiSettings.hideMinify()
+        val hideTextViewer = uiSettings.hideViewer()
+        textBtn.isVisible = !hideTextViewer
+        viewerBtn.isVisible = !hideTextViewer
+        headerAfterTextViewerSeparator.isVisible = !hideTextViewer
+        openInEditorBtn.isVisible = !uiSettings.hideOpenInMainEditor()
+        if (uiSettings.hideViewer() && viewMode == ViewMode.VIEWER) {
+            switchToTextMode()
+        } else {
+            updateToggleState()
+        }
+        revalidate()
+        repaint()
     }
 
     private fun applyUiSettingsToEditor() {
