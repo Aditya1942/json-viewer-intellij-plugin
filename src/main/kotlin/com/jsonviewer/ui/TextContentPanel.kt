@@ -1,6 +1,9 @@
 package com.jsonviewer.ui
 
+import com.intellij.ide.ui.LafManager
+import com.intellij.ide.ui.LafManagerListener
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.command.WriteCommandAction
@@ -11,31 +14,33 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.colors.EditorColorsListener
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
-import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.JBColor
+import com.intellij.util.ui.JBUI
 import com.jsonviewer.JsonViewerUiSettings
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
+import java.awt.Component
+import javax.swing.JButton
+import javax.swing.JLayeredPane
 import javax.swing.JPanel
+import javax.swing.SwingUtilities
 import javax.swing.Timer
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Text content panel — IntelliJ Editor with auto-detected syntax highlighting
-//
-// Replaces Swing JTextArea for massive performance improvements:
-// - Virtual scrolling (only visible lines are rendered)
-// - Auto-detect JSON: when content is valid JSON, applies full IDE features
-//   (syntax highlighting, code folding, color scheme) automatically
-// - Plain text mode for non-JSON content — no forced highlighting
-// - Native IntelliJ editing experience
+// Text content panel — IntelliJ Editor with configurable syntax highlighting
+// (Plain / Auto / explicit FileType). Plain preserves legacy JSON auto-detect.
 // ──────────────────────────────────────────────────────────────────────────────
 
 class TextContentPanel(
@@ -62,14 +67,41 @@ class TextContentPanel(
     private var debounceTimer: Timer? = null
     private var suppressEvents = false
 
-    // ── Auto-detect JSON mode ──
-    private var isJsonMode = false
+    /** User-selected mode; default matches legacy behavior. */
+    private var noteHighlightMode: NoteHighlightMode = NoteHighlightMode.Plain
+
+    /** True when JSON lexer + JSON folding path is active (Plain/Auto JSON, or Explicit JSON + likely JSON). */
+    private var isJsonStructuralHighlight = false
     private var detectionTimer: Timer? = null
     private var foldTimer: Timer? = null
 
     // ── Search state ──
     private var searchMatchRanges: List<Pair<Int, Int>> = emptyList()
     private var currentMatchIndex = -1
+
+    /** Transparent icon-only control; top-right over the editor. */
+    private val syntaxHighlightButton = JButton(NoteSyntaxHighlightUi.iconForMode(NoteHighlightMode.Plain)).apply {
+        isOpaque = false
+        setContentAreaFilled(false)
+        border = JBUI.Borders.empty(4, 6)
+        margin = JBUI.emptyInsets()
+        isFocusPainted = false
+        toolTipText = NoteSyntaxHighlightUi.tooltipForMode(NoteHighlightMode.Plain)
+    }
+
+    private var syntaxHighlightMenuHandler: ((Component) -> Unit)? = null
+
+    private val editorLayerHost = JLayeredPane()
+
+    private val lafListener = object : LafManagerListener {
+        override fun lookAndFeelChanged(lafManager: LafManager) {
+            SwingUtilities.invokeLater {
+                syntaxHighlightButton.repaint()
+                editorLayerHost.repaint()
+                updateSyntaxHighlightPresentation(noteHighlightMode)
+            }
+        }
+    }
 
     init {
         val factory = EditorFactory.getInstance()
@@ -91,7 +123,6 @@ class TextContentPanel(
         document = created.first
         editor = created.second
 
-        // Add document change listener with debounce
         document.addDocumentListener(object : DocumentListener {
             override fun documentChanged(event: DocumentEvent) {
                 if (!suppressEvents) {
@@ -101,7 +132,70 @@ class TextContentPanel(
             }
         }, this)
 
-        add(editor.component, BorderLayout.CENTER)
+        ApplicationManager.getApplication().messageBus.connect(this).subscribe(
+            EditorColorsManager.TOPIC,
+            EditorColorsListener { reapplyHighlightingForCurrentMode() }
+        )
+
+        ApplicationManager.getApplication().messageBus.connect(this).subscribe(
+            LafManagerListener.TOPIC,
+            lafListener
+        )
+
+        syntaxHighlightButton.installIconButtonHover {
+            isOpaque = false
+            background = null
+            repaint()
+        }
+        syntaxHighlightButton.addActionListener {
+            syntaxHighlightMenuHandler?.invoke(syntaxHighlightButton)
+        }
+
+        editorLayerHost.layout = null
+        val edComp = editor.component
+        editorLayerHost.add(edComp, Integer.valueOf(JLayeredPane.DEFAULT_LAYER))
+        editorLayerHost.add(syntaxHighlightButton, Integer.valueOf(JLayeredPane.PALETTE_LAYER))
+        editorLayerHost.addComponentListener(object : ComponentAdapter() {
+            override fun componentResized(e: ComponentEvent) {
+                layoutSyntaxHighlightOverlay()
+            }
+        })
+        editorLayerHost.isOpaque = false
+
+        add(editorLayerHost, BorderLayout.CENTER)
+        layoutSyntaxHighlightOverlay()
+    }
+
+    fun setSyntaxHighlightMenuHandler(handler: (Component) -> Unit) {
+        syntaxHighlightMenuHandler = handler
+    }
+
+    fun updateSyntaxHighlightPresentation(mode: NoteHighlightMode) {
+        syntaxHighlightButton.icon = NoteSyntaxHighlightUi.iconForMode(mode)
+        syntaxHighlightButton.toolTipText = NoteSyntaxHighlightUi.tooltipForMode(mode)
+    }
+
+    private fun layoutSyntaxHighlightOverlay() {
+        val w = editorLayerHost.width
+        val h = editorLayerHost.height
+        if (w <= 0 || h <= 0) return
+        val edComp = editor.component
+        edComp.setBounds(0, 0, w, h)
+        val btnW = JBUI.scale(28).coerceAtLeast(syntaxHighlightButton.preferredSize.width)
+        val btnH = JBUI.scale(26).coerceAtLeast(syntaxHighlightButton.preferredSize.height)
+        syntaxHighlightButton.setBounds(w - btnW - JBUI.scale(6), JBUI.scale(4), btnW, btnH)
+    }
+
+    override fun doLayout() {
+        super.doLayout()
+        layoutSyntaxHighlightOverlay()
+    }
+
+    fun getHighlightMode(): NoteHighlightMode = noteHighlightMode
+
+    fun setHighlightMode(mode: NoteHighlightMode) {
+        noteHighlightMode = mode
+        reapplyHighlightingForCurrentMode()
     }
 
     /**
@@ -113,7 +207,6 @@ class TextContentPanel(
         val sz = size.coerceIn(JsonViewerUiSettings.MIN_FONT_SIZE, JsonViewerUiSettings.MAX_FONT_SIZE)
         val name = family.ifBlank { PluginFonts.defaultFamilyName() }
         val globals = EditorColorsManager.getInstance().globalScheme
-        // During tool window init, clone() can return null — use a safe cast and fall back to global.
         val scheme = (edEx.colorsScheme.clone() as? EditorColorsScheme)
             ?: (globals.clone() as? EditorColorsScheme)
             ?: return
@@ -126,7 +219,6 @@ class TextContentPanel(
 
     fun getText(): String = document.text
 
-    /** Caret/scroll read the editor model; must run under read access (not implied after [WriteCommandAction]). */
     private fun moveCaretToOffsetAndScroll(offset: Int, scrollType: ScrollType) {
         WriteIntentReadAction.run(Runnable {
             editor.caretModel.moveToOffset(offset)
@@ -136,7 +228,6 @@ class TextContentPanel(
 
     /** Set text and fire onTextChanged. */
     fun setText(text: String) {
-        // Cancel any pending detection — we detect immediately below
         detectionTimer?.stop()
         if (document.text != text) {
             WriteCommandAction.runWriteCommandAction(project) {
@@ -144,13 +235,12 @@ class TextContentPanel(
             }
             moveCaretToOffsetAndScroll(0, ScrollType.MAKE_VISIBLE)
         }
-        detectAndApplyMode(text)
+        reapplyHighlightingForCurrentMode()
     }
 
     /** Set text without firing the storage callback (used when loading tab data). */
     fun setTextSilently(text: String) {
         suppressEvents = true
-        // Cancel any pending detection — we detect immediately below
         detectionTimer?.stop()
         if (document.text != text) {
             WriteCommandAction.runWriteCommandAction(project) {
@@ -159,7 +249,7 @@ class TextContentPanel(
             moveCaretToOffsetAndScroll(0, ScrollType.MAKE_VISIBLE)
         }
         suppressEvents = false
-        detectAndApplyMode(text)
+        reapplyHighlightingForCurrentMode()
     }
 
     // ── Searchable implementation ──
@@ -184,7 +274,6 @@ class TextContentPanel(
         searchMatchRanges = matches
         val markupModel = editor.markupModel
 
-        // Add yellow highlights for all matches
         for ((start, end) in matches) {
             markupModel.addRangeHighlighter(
                 start, end,
@@ -221,8 +310,6 @@ class TextContentPanel(
         return (currentMatchIndex + 1) to searchMatchRanges.size
     }
 
-    // ── Internal highlight helpers ──
-
     private fun clearSearchHighlights() {
         editor.markupModel.removeAllHighlighters()
     }
@@ -257,7 +344,6 @@ class TextContentPanel(
         moveCaretToOffsetAndScroll(start, ScrollType.CENTER)
     }
 
-    /** Stop all debounce timers. Call when the panel is being disposed. */
     fun stopTimers() {
         debounceTimer?.stop()
         debounceTimer = null
@@ -276,28 +362,23 @@ class TextContentPanel(
         }
     }
 
-    // ── Auto-detect JSON mode ────────────────────────────────────────────────
-
-    /**
-     * Debounced JSON detection — schedules a check 500ms after the last keystroke.
-     * Called from the document change listener during user typing/pasting.
-     * Note: javax.swing.Timer already fires on the EDT, no need for SwingUtilities.invokeLater.
-     */
     private fun scheduleDetection() {
         detectionTimer?.stop()
         detectionTimer = Timer(500) {
-            detectAndApplyMode(document.text)
+            when (val m = noteHighlightMode) {
+                is NoteHighlightMode.Plain, is NoteHighlightMode.Auto -> reapplyHighlightingForCurrentMode()
+                is NoteHighlightMode.Explicit -> {
+                    if (isJsonPluginFileType(m.fileType) && isLikelyJson(document.text)) {
+                        scheduleFoldUpdate()
+                    }
+                }
+            }
         }.also {
             it.isRepeats = false
             it.start()
         }
     }
 
-    /**
-     * Debounced fold region update — schedules a refresh 1s after the last change.
-     * Fold computation iterates every character, so we use a longer debounce than
-     * the detection timer to avoid O(n) work on every keystroke while typing.
-     */
     private fun scheduleFoldUpdate() {
         foldTimer?.stop()
         foldTimer = Timer(1000) {
@@ -308,190 +389,208 @@ class TextContentPanel(
         }
     }
 
-    /**
-     * Immediately detect whether [text] is valid JSON and switch the editor mode.
-     * Called directly from setText/setTextSilently for instant feedback on paste/load,
-     * and from the debounced timer during user typing.
-     */
-    private fun detectAndApplyMode(text: String) {
+    private fun reapplyHighlightingForCurrentMode() {
+        val text = document.text
+        when (val m = noteHighlightMode) {
+            is NoteHighlightMode.Plain -> applyPlainLikeMode(text)
+            is NoteHighlightMode.Auto -> applyAutoMode(text)
+            is NoteHighlightMode.Explicit -> applyExplicitMode(m.fileType, text)
+        }
+    }
+
+    /** Legacy Plain: JSON lexer + folds when likely JSON; else plain. */
+    private fun applyPlainLikeMode(text: String) {
         if (isLikelyJson(text)) {
-            applyJsonMode()
+            if (applyJsonHighlighter()) {
+                scheduleFoldUpdate()
+            } else {
+                leaveJsonStructuralHighlight()
+                applyPlainHighlighter()
+                clearFoldRegions()
+            }
         } else {
-            applyPlainTextMode()
+            leaveJsonStructuralHighlight()
+            applyPlainHighlighter()
+            clearFoldRegions()
         }
     }
 
-    /**
-     * Lightweight check to determine if text looks like a JSON object or array.
-     *
-     * Uses index scanning (no [String.trim] allocation) and a simple bracket-balance
-     * check instead of a full Gson parse. This keeps detection O(n) in the worst case
-     * but avoids allocating the entire parsed DOM tree, which matters for multi-MB texts
-     * that are checked on every keystroke (debounced).
-     *
-     * Only objects `{…}` and arrays `[…]` trigger JSON mode — bare primitives
-     * like `"hello"` or `42` stay in plain text since they don't benefit from
-     * folding or structure highlighting.
-     */
-    private fun isLikelyJson(text: String): Boolean {
-        if (text.length < 2) return false
-
-        // Find first and last non-whitespace characters without allocating a trimmed copy
-        var first = 0
-        while (first < text.length && text[first].isWhitespace()) first++
-        if (first >= text.length) return false
-
-        var last = text.length - 1
-        while (last > first && text[last].isWhitespace()) last--
-
-        val openChar = text[first]
-        val closeChar = text[last]
-
-        // Must start with { or [ and end with matching bracket
-        if (openChar == '{' && closeChar != '}') return false
-        if (openChar == '[' && closeChar != ']') return false
-        if (openChar != '{' && openChar != '[') return false
-
-        // For small texts (< 4KB), do a quick bracket-balance check for accuracy
-        val contentLength = last - first + 1
-        if (contentLength <= 4096) {
-            return isBracketsBalanced(text, first, last)
-        }
-
-        // For larger texts, the structural pre-check above is sufficient —
-        // starts with {/[ and ends with }/] is a strong enough signal
-        return true
-    }
-
-    /**
-     * Quick bracket-balance check for a region of text.
-     * Verifies that `{`, `}`, `[`, `]` are properly nested (ignoring content inside strings).
-     * Returns false if brackets are clearly unbalanced.
-     */
-    private fun isBracketsBalanced(text: String, start: Int, end: Int): Boolean {
-        var depth = 0
-        var inString = false
-        var escape = false
-        for (i in start..end) {
-            val ch = text[i]
-            if (escape) { escape = false; continue }
-            if (ch == '\\' && inString) { escape = true; continue }
-            if (ch == '"') { inString = !inString; continue }
-            if (inString) continue
-            when (ch) {
-                '{', '[' -> depth++
-                '}', ']' -> {
-                    depth--
-                    if (depth < 0) return false  // more closes than opens
-                }
+    private fun applyAutoMode(text: String) {
+        if (isLikelyJson(text)) {
+            if (applyJsonHighlighter()) {
+                scheduleFoldUpdate()
+            } else {
+                leaveJsonStructuralHighlight()
+                applyPlainHighlighter()
+                clearFoldRegions()
+            }
+        } else {
+            leaveJsonStructuralHighlight()
+            val inferred = NoteContentFileTypeInference.inferNonJson(text)
+            if (inferred != null && applyFileTypeHighlighter(inferred)) {
+                clearFoldRegions()
+            } else {
+                applyPlainHighlighter()
+                clearFoldRegions()
             }
         }
-        return depth == 0
     }
 
-    /**
-     * Switch to JSON mode — apply JSON syntax highlighting and compute fold regions.
-     * No-op if already in JSON mode.
-     *
-     * Tries the bundled IntelliJ JSON plugin first (richer experience).
-     * If unavailable (e.g. Android Studio), falls back to our own
-     * [SimpleJsonSyntaxHighlighter] which uses only Platform core APIs.
-     */
-    private fun applyJsonMode() {
-        if (isJsonMode) {
-            // Already in JSON mode, but content changed — debounce fold region refresh
-            // to avoid O(n) recomputation on every keystroke
-            scheduleFoldUpdate()
+    private fun applyExplicitMode(fileType: FileType, text: String) {
+        leaveJsonStructuralHighlight()
+        if (!applyFileTypeHighlighter(fileType)) {
+            applyPlainHighlighter()
+            clearFoldRegions()
             return
         }
-        isJsonMode = true
-        val edEx = editor as? EditorEx ?: return
-        val scheme = EditorColorsManager.getInstance().globalScheme
+        if (isJsonPluginFileType(fileType) && isLikelyJson(text)) {
+            isJsonStructuralHighlight = true
+            scheduleFoldUpdate()
+        } else {
+            clearFoldRegions()
+        }
+    }
 
-        // Strategy 1: Use the bundled JSON plugin's FileType (IntelliJ, WebStorm, etc.)
+    /** @return false if no JSON highlighter could be installed. */
+    private fun applyJsonHighlighter(): Boolean {
+        val edEx = editor as? EditorEx ?: return false
+        val scheme = EditorColorsManager.getInstance().globalScheme
         var applied = false
         try {
-            val jsonFileType = Class.forName("com.intellij.json.JsonFileType")
-                .getDeclaredField("INSTANCE").get(null) as FileType
-            edEx.highlighter = EditorHighlighterFactory.getInstance()
-                .createEditorHighlighter(jsonFileType, scheme, null)
-            applied = true
-        } catch (_: Exception) {
-            LOG.debug("JSON plugin not available, falling back to built-in highlighter")
+            val jsonFileType = NoteHighlightFileTypeResolver.jsonFileType()
+            if (jsonFileType != null) {
+                edEx.highlighter = EditorHighlighterFactory.getInstance()
+                    .createEditorHighlighter(jsonFileType, scheme, null)
+                applied = true
+            }
+        } catch (e: Exception) {
+            LOG.debug("JSON FileType highlighter failed", e)
         }
-
-        // Strategy 2: Fall back to our custom lightweight JSON highlighter
         if (!applied) {
             try {
                 edEx.highlighter = EditorHighlighterFactory.getInstance()
                     .createEditorHighlighter(SimpleJsonSyntaxHighlighter(), scheme)
                 applied = true
             } catch (e: Exception) {
-                LOG.warn("Could not apply any JSON highlighter", e)
+                LOG.warn("Could not apply built-in JSON highlighter", e)
             }
         }
-
-        if (!applied) {
-            isJsonMode = false
-            return
+        if (applied) {
+            isJsonStructuralHighlight = true
         }
-        updateFoldRegions()
+        return applied
     }
 
-    /**
-     * Switch to plain text mode — remove JSON highlighting and clear fold regions.
-     * No-op if already in plain text mode.
-     */
-    private fun applyPlainTextMode() {
-        if (!isJsonMode) return
-        isJsonMode = false
-        val edEx = editor as? EditorEx ?: return
-        try {
-            val plainFileType = Class.forName("com.intellij.openapi.fileTypes.PlainTextFileType")
-                .getDeclaredField("INSTANCE").get(null) as FileType
+    private fun leaveJsonStructuralHighlight() {
+        isJsonStructuralHighlight = false
+    }
+
+    private fun applyPlainHighlighter(): Boolean {
+        val edEx = editor as? EditorEx ?: return false
+        val scheme = EditorColorsManager.getInstance().globalScheme
+        return try {
             edEx.highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(
-                plainFileType,
-                EditorColorsManager.getInstance().globalScheme,
+                NoteHighlightFileTypeResolver.plainTextFileType(),
+                scheme,
                 null
             )
-        } catch (_: Exception) {
-            // Fallback: create a bare highlighter with a null SyntaxHighlighter
+            true
+        } catch (e: Exception) {
+            LOG.debug("Plain highlighter failed", e)
             try {
-                val nullHighlighter: com.intellij.openapi.fileTypes.SyntaxHighlighter? = null
                 edEx.highlighter = EditorHighlighterFactory.getInstance()
-                    .createEditorHighlighter(nullHighlighter, EditorColorsManager.getInstance().globalScheme)
-            } catch (_: Exception) {
-                LOG.debug("Could not reset to plain text highlighter")
+                    .createEditorHighlighter(null as com.intellij.openapi.fileTypes.SyntaxHighlighter?, scheme)
+                true
+            } catch (e2: Exception) {
+                LOG.warn("Could not apply plain highlighter", e2)
+                false
             }
         }
-        clearFoldRegions()
     }
 
-    // ── Fold regions ─────────────────────────────────────────────────────────
+    private fun applyFileTypeHighlighter(fileType: FileType): Boolean {
+        val edEx = editor as? EditorEx ?: return false
+        val scheme = EditorColorsManager.getInstance().globalScheme
+        return try {
+            edEx.highlighter = EditorHighlighterFactory.getInstance()
+                .createEditorHighlighter(fileType, scheme, null)
+            true
+        } catch (e: Exception) {
+            LOG.debug("Highlighter failed for ${fileType.name}", e)
+            false
+        }
+    }
 
-    /**
-     * Compute fold regions from the JSON structure and apply them to the editor.
-     * Only multi-line `{…}` and `[…]` blocks get fold regions.
-     */
+    private fun isJsonPluginFileType(fileType: FileType): Boolean {
+        val j = NoteHighlightFileTypeResolver.jsonFileType() ?: return false
+        return fileType.name == j.name
+    }
+
+    private fun isLikelyJson(text: String): Boolean {
+        if (text.length < 2) return false
+        var first = 0
+        while (first < text.length && text[first].isWhitespace()) first++
+        if (first >= text.length) return false
+        var last = text.length - 1
+        while (last > first && text[last].isWhitespace()) last--
+        val openChar = text[first]
+        val closeChar = text[last]
+        if (openChar == '{' && closeChar != '}') return false
+        if (openChar == '[' && closeChar != ']') return false
+        if (openChar != '{' && openChar != '[') return false
+        val contentLength = last - first + 1
+        if (contentLength <= 4096) {
+            return isBracketsBalanced(text, first, last)
+        }
+        return true
+    }
+
+    private fun isBracketsBalanced(text: String, start: Int, end: Int): Boolean {
+        var depth = 0
+        var inString = false
+        var escape = false
+        for (i in start..end) {
+            val ch = text[i]
+            if (escape) {
+                escape = false
+                continue
+            }
+            if (ch == '\\' && inString) {
+                escape = true
+                continue
+            }
+            if (ch == '"') {
+                inString = !inString
+                continue
+            }
+            if (inString) continue
+            when (ch) {
+                '{', '[' -> depth++
+                '}', ']' -> {
+                    depth--
+                    if (depth < 0) return false
+                }
+            }
+        }
+        return depth == 0
+    }
+
     private fun updateFoldRegions() {
-        // Timer / arbitrary EDT callbacks do not hold read access; folding APIs require it.
+        if (!isJsonStructuralHighlight) return
         WriteIntentReadAction.run(Runnable {
             editor.foldingModel.runBatchFoldingOperation {
-                // Clear existing fold regions
                 for (region in editor.foldingModel.allFoldRegions) {
                     editor.foldingModel.removeFoldRegion(region)
                 }
                 val text = document.text
                 if (text.isBlank()) return@runBatchFoldingOperation
-
                 val foldRanges = computeJsonFoldRanges(text)
                 for ((start, end, placeholder) in foldRanges) {
                     val startLine = document.getLineNumber(start)
                     val endLine = document.getLineNumber(end)
-                    // Only create fold regions for blocks that span multiple lines
                     if (endLine > startLine && start + 1 < end) {
                         editor.foldingModel.addFoldRegion(start + 1, end, placeholder)?.apply {
-                            isExpanded = true  // Start expanded so user sees full content
+                            isExpanded = true
                         }
                     }
                 }
@@ -499,25 +598,26 @@ class TextContentPanel(
         })
     }
 
-    /**
-     * Stack-based bracket matching to find `{…}` and `[…]` pairs in JSON text.
-     * Properly handles string escaping so brackets inside strings are ignored.
-     *
-     * @return list of (startOffset, endOffset, placeholder) triples
-     */
     private fun computeJsonFoldRanges(text: String): List<Triple<Int, Int, String>> {
         val ranges = mutableListOf<Triple<Int, Int, String>>()
-        val stack = ArrayDeque<Pair<Int, Char>>() // (offset, opening bracket)
+        val stack = ArrayDeque<Pair<Int, Char>>()
         var inString = false
         var escape = false
-
         for (i in text.indices) {
             val ch = text[i]
-            if (escape) { escape = false; continue }
-            if (ch == '\\' && inString) { escape = true; continue }
-            if (ch == '"') { inString = !inString; continue }
+            if (escape) {
+                escape = false
+                continue
+            }
+            if (ch == '\\' && inString) {
+                escape = true
+                continue
+            }
+            if (ch == '"') {
+                inString = !inString
+                continue
+            }
             if (inString) continue
-
             when (ch) {
                 '{', '[' -> stack.addLast(i to ch)
                 '}' -> {
@@ -537,7 +637,6 @@ class TextContentPanel(
         return ranges
     }
 
-    /** Remove all fold regions from the editor. */
     private fun clearFoldRegions() {
         WriteIntentReadAction.run(Runnable {
             editor.foldingModel.runBatchFoldingOperation {

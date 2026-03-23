@@ -30,6 +30,9 @@ import com.intellij.util.ui.JBUI
 import com.jsonviewer.ui.ideSeparatorColor
 import com.jsonviewer.ui.SearchPanel
 import com.jsonviewer.ui.Searchable
+import com.jsonviewer.ui.NoteHighlightMode
+import com.jsonviewer.ui.NoteSyntaxHighlightUi
+import com.jsonviewer.ui.SyntaxHighlightComboItem
 import com.jsonviewer.ui.TextContentPanel
 import com.jsonviewer.dev.DevIconsExplorerDialog
 import com.jsonviewer.dev.DevMode
@@ -248,6 +251,8 @@ class JsonViewerPanel(
     private val copyBtn = actionIconButton(AllIcons.Actions.Copy, "Copy") { copyToClipboard() }
     private val formatBtn = actionIconButton(AllIcons.Diff.MagicResolveToolbar, "Format") { formatText() }
     private val minifyBtn = actionIconButton(minifyIcon(), "Minify") { minifyText() }
+
+    private val syntaxHighlightComboModel = NoteSyntaxHighlightUi.createComboBoxModel()
 
     /** Vertical rule between Text/Viewer toggles and the New tab group; hidden when mode toggles are hidden. */
     private val headerAfterTextViewerSeparator = headerVerticalSeparator()
@@ -645,6 +650,51 @@ class JsonViewerPanel(
 
         applyUiSettingsToEditor()
         applyHeaderToolbarVisibility()
+
+        textContent.setSyntaxHighlightMenuHandler { anchor -> openSyntaxHighlightPopup(anchor) }
+    }
+
+    private fun openSyntaxHighlightPopup(anchor: Component) {
+        val items = (0 until syntaxHighlightComboModel.size).map { syntaxHighlightComboModel.getElementAt(it) }
+        NoteSyntaxHighlightUi.showHighlightModePopup(anchor, items) { picked ->
+            if (picked is SyntaxHighlightComboItem.AllTypesAction) {
+                SwingUtilities.invokeLater {
+                    NoteSyntaxHighlightUi.showAllFileTypesPopup(anchor) { ft ->
+                        applySyntaxHighlightMode(NoteHighlightMode.Explicit(ft))
+                    }
+                }
+                return@showHighlightModePopup
+            }
+            val mode = picked.toNoteHighlightMode() ?: return@showHighlightModePopup
+            applySyntaxHighlightMode(mode)
+        }
+    }
+
+    private fun applySyntaxHighlightMode(mode: NoteHighlightMode) {
+        textContent.setHighlightMode(mode)
+        val serialized = NoteHighlightMode.toSerialized(mode)
+        storageService.updateTab(activeTabId, highlightMode = serialized)
+        activeTab()?.highlightMode = serialized
+        syncSyntaxHighlightControl(mode)
+    }
+
+    private fun syncSyntaxHighlightControl(mode: NoteHighlightMode) {
+        val elements = (0 until syntaxHighlightComboModel.size).map { syntaxHighlightComboModel.getElementAt(it) }
+        var target = SyntaxHighlightComboItem.findItemForMode(elements, mode)
+        if (target is SyntaxHighlightComboItem.Explicit) {
+            val exists = elements.any {
+                it is SyntaxHighlightComboItem.Explicit && it.fileType.name == target.fileType.name
+            }
+            if (!exists) {
+                val allIdx = elements.indexOf(SyntaxHighlightComboItem.AllTypesAction)
+                if (allIdx >= 0) {
+                    syntaxHighlightComboModel.insertElementAt(target, allIdx)
+                } else {
+                    syntaxHighlightComboModel.addElement(target)
+                }
+            }
+        }
+        textContent.updateSyntaxHighlightPresentation(mode)
     }
 
     // ── Tab loading / sync ───────────────────────────────────────────────────
@@ -1205,7 +1255,10 @@ class JsonViewerPanel(
 
     private fun refreshActiveTabContent() {
         val tab = activeTab()
+        val mode = NoteHighlightMode.fromSerialized(tab?.highlightMode)
+        textContent.setHighlightMode(mode)
         textContent.setTextSilently(tab?.jsonText ?: "")
+        syncSyntaxHighlightControl(mode)
     }
 
     private fun refreshTabBarState() {

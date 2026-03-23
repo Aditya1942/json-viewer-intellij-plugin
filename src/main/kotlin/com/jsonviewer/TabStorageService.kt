@@ -8,6 +8,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.util.xmlb.XmlSerializerUtil
 import com.intellij.util.xmlb.annotations.Tag
 import com.intellij.util.xmlb.annotations.XCollection
+import com.jsonviewer.ui.NoteHighlightMode
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -35,6 +36,8 @@ data class SavedTab(
     @Tag("createdAt") var createdAt: Long = System.currentTimeMillis(),
     @Tag("updatedAt") var updatedAt: Long = System.currentTimeMillis(),
     @Tag("expandedPathKeys") var expandedPathKeys: String = "",
+    /** Serialized [NoteHighlightMode] (plain / auto / explicit:…). */
+    @Tag("highlightMode") var highlightMode: String = NoteHighlightMode.SERIAL_PLAIN,
 ) {
     // No-arg constructor required for XML deserialization
     constructor() : this(
@@ -43,7 +46,8 @@ data class SavedTab(
         jsonText = "",
         createdAt = System.currentTimeMillis(),
         updatedAt = System.currentTimeMillis(),
-        expandedPathKeys = ""
+        expandedPathKeys = "",
+        highlightMode = NoteHighlightMode.SERIAL_PLAIN,
     )
 }
 
@@ -80,6 +84,7 @@ data class SharedTabEntry(
     val jsonText: String = "",
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
+    val highlightMode: String? = null,
 )
 
 // ──────────────────────────────────────────────────────
@@ -200,11 +205,18 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
     private fun defaultTabName(): String =
         LocalDateTime.now().format(DateTimeFormatter.ofPattern("MMM dd, yyyy h:mm a", Locale.US))
 
-    fun updateTab(id: String, name: String? = null, jsonText: String? = null, expandedPathKeys: String? = null) {
+    fun updateTab(
+        id: String,
+        name: String? = null,
+        jsonText: String? = null,
+        expandedPathKeys: String? = null,
+        highlightMode: String? = null,
+    ) {
         val tab = myState.tabs.find { it.id == id } ?: return
         if (name != null) tab.name = name
         if (jsonText != null) tab.jsonText = jsonText
         if (expandedPathKeys != null) tab.expandedPathKeys = expandedPathKeys
+        if (highlightMode != null) tab.highlightMode = highlightMode
         tab.updatedAt = System.currentTimeMillis()
         onChanged()
     }
@@ -228,6 +240,7 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
         val copy = SavedTab(
             name = "${source.name} (copy)",
             jsonText = source.jsonText,
+            highlightMode = source.highlightMode,
         )
         val index = myState.tabs.indexOfFirst { it.id == id }
         myState.tabs.add(index + 1, copy)
@@ -335,6 +348,7 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
                         jsonText = tab.jsonText,
                         createdAt = tab.createdAt,
                         updatedAt = tab.updatedAt,
+                        highlightMode = tab.highlightMode.takeIf { it.isNotBlank() },
                     )
                 },
                 activeTabId = myState.activeTabId,
@@ -382,6 +396,7 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
                         jsonText = entry.jsonText,
                         createdAt = entry.createdAt,
                         updatedAt = entry.updatedAt,
+                        highlightMode = entry.highlightMode ?: NoteHighlightMode.SERIAL_PLAIN,
                     )
                 })
                 myState.activeTabId = sharedFile.activeTabId
@@ -404,6 +419,7 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
                         jsonText = entry.jsonText,
                         createdAt = entry.createdAt,
                         updatedAt = entry.updatedAt,
+                        highlightMode = entry.highlightMode ?: NoteHighlightMode.SERIAL_PLAIN,
                     ))
                     changed = true
                 } else if (entry.updatedAt > local.updatedAt) {
@@ -411,6 +427,7 @@ class TabStorageService : PersistentStateComponent<JsonViewerTabsState> {
                     local.name = entry.name
                     local.jsonText = entry.jsonText
                     local.updatedAt = entry.updatedAt
+                    if (entry.highlightMode != null) local.highlightMode = entry.highlightMode
                     changed = true
                 }
             }
