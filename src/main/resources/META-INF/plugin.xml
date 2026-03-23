@@ -15,11 +15,19 @@
           <li><b>Search</b> — Cmd+F / Ctrl+F with next/previous and highlights in both text and tree</li>
           <li><b>Paste / Copy</b> — quick clipboard actions in the toolbar</li>
           <li><b>Main editor</b> — open JSON Notes in the editor area (Tools menu)</li>
+          <li><b>Keyboard shortcuts</b> — optional keybindings for new tab, open with new tab, and editor actions; shortcut reference in JSON Notes settings</li>
         </ul>
         <p>Inspired by <a href="https://jsonviewer.stack.hu/">Online JSON Viewer (jsonviewer.stack.hu)</a>.</p>
     ]]></description>
 
     <change-notes><![CDATA[
+        <p><b>1.0.4</b> (2026-03-23)</p>
+        <ul>
+            <li><b>Keyboard shortcuts</b> — default bindings where applicable: <strong>Open JSON Notes with New Tab</strong> (Ctrl+Shift+Alt+N), <strong>New JSON Notes Tab</strong> (Ctrl+Shift+Alt+T), <strong>Open JSON Notes in Editor</strong> (Ctrl+Shift+Alt+J), <strong>Open in Editor with New Tab</strong> on macOS (⌥⌘J). <strong>Next</strong> / <strong>Previous</strong> tab actions are in Keymap (search &quot;JSON Notes&quot;) with no default shortcut.</li>
+            <li><b>Actions</b> — new tab, next/previous tab, open with new tab, and open editor with new tab work from the active JSON Notes panel (tool window or main editor).</li>
+            <li><b>Settings</b> — &quot;Keyboard shortcuts&quot; section lists JSON Notes actions and shows the current shortcuts from your active keymap; link text points to <strong>Settings → Keymap</strong>.</li>
+            <li><b>Keymap</b> — all JSON Notes actions are grouped under <strong>JSON Notes</strong> for search and rebinding.</li>
+        </ul>
         <p><b>1.0.3</b> (2026-03-22)</p>
         <ul>
             <li><b>Main editor</b> — <strong>Tools → Open JSON Notes in Editor</strong> (Ctrl+Shift+Alt+J, ⌃⇧⌥J on macOS); <strong>Undo / Redo</strong> fixed with a writable document; full <code>TextEditor</code> integration and shared document between the tool window and editor</li>

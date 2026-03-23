@@ -34,7 +34,7 @@ Step-by-step guide to publish this plugin to the [JetBrains Marketplace](https:/
 ./gradlew buildPlugin
 ```
 
-- Output: **`build/distributions/json-viewer-1.0.0.zip`** (or similar).
+- Output: **`build/distributions/json-viewer-jetbrains-<version>.zip`** (e.g. `json-viewer-jetbrains-1.0.4.zip`; version comes from `build.gradle.kts`; archive base name from `settings.gradle.kts` root project name).
 - Max size allowed: **400 MB**.
 - (Optional) [Sign the plugin](https://plugins.jetbrains.com/docs/intellij/plugin-signing.html); unsigned is also accepted.
 
@@ -66,7 +66,7 @@ Fill in the upload form:
 
 | Field | What to provide |
 |-------|------------------|
-| **Plugin file** | The ZIP from `build/distributions/` (e.g. `json-viewer-1.0.0.zip`). |
+| **Plugin file** | The ZIP from `build/distributions/` (e.g. `json-viewer-jetbrains-1.0.4.zip`). |
 | **License / EULA** | Your chosen license text (or EULA). **Required.** |
 | **Source code URL** | **Required** if the plugin is open-source (e.g. GitHub repo URL). |
 | **Tags** | At least one; e.g. `json`, `formatter`, `tools`, `editor`. Correct tags improve discoverability. |

@@ -4,15 +4,15 @@ A **JSON viewer and notes** plugin for **all JetBrains IDEs** (IntelliJ IDEA, Py
 
 ---
 
-## What’s new in 1.0.3
+## What’s new in 1.0.4
 
-- **Main editor** — **Tools → Open JSON Notes in Editor** (**Ctrl+Shift+Alt+J**, **⌃⇧⌥J** on macOS); **Undo / Redo** works with a writable document; full **TextEditor** integration and a shared document between the tool window and editor.
-- **Tabs** — confirm before closing a tab; clearer tab bar and navigation.
-- **Search** — debounced find with highlights in text and tree.
-- **Appearance** — font family/size in settings; optional toolbar actions; layout and hover polish.
-- **Stability** — safer document/tree access on background threads; safer text updates and caret handling when content changes.
+- **Keyboard shortcuts** — Default bindings where set: **Open JSON Notes with New Tab** (**Ctrl+Shift+Alt+N**), **New JSON Notes Tab** (**Ctrl+Shift+Alt+T**), **Open JSON Notes in Editor** (**Ctrl+Shift+Alt+J**), **Open in Editor with New Tab** on macOS (**⌥⌘J**). **Next** / **Previous** tab are in **Settings → Keymap** (search “JSON Notes”) with no default shortcut.
+- **Actions** — New tab, next/previous tab, open with new tab, and open editor with new tab work from the focused JSON Notes UI (tool window or main editor).
+- **Settings** — A **Keyboard shortcuts** table lists JSON Notes actions and shows live shortcuts from your active keymap.
 
-Full history: [CHANGELOG.md](CHANGELOG.md). Marketplace **What’s new** matches `plugin.xml` change notes from the build.
+Earlier **1.0.3** highlights: main-editor **Undo / Redo** with **TextEditor** integration, tab close confirmation, debounced search, font settings, and stability fixes — see [CHANGELOG.md](CHANGELOG.md).
+
+Full history: [CHANGELOG.md](CHANGELOG.md). Marketplace **What’s new** matches `<change-notes>` in `plugin.xml`.
 
 ---
 
