@@ -12,13 +12,19 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.event.CaretEvent
+import com.intellij.openapi.editor.event.CaretListener
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
+import com.intellij.openapi.editor.event.SelectionEvent
+import com.intellij.openapi.editor.event.SelectionListener
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
+import com.intellij.openapi.editor.markup.MarkupModel
+import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.JBColor
 import com.jsonviewer.JsonViewerUiSettings
@@ -54,6 +60,19 @@ class TextContentPanel(
         private val HIGHLIGHT_ORANGE = TextAttributes().apply {
             backgroundColor = JBColor(Color(0xFF, 0xA5, 0x00, 0xC0), Color(0xFF, 0x8C, 0x00, 0xC0))
         }
+        /** Below search highlights; neutral grey for same-word occurrences. */
+        private val WORD_OCCURRENCE_GREY = TextAttributes().apply {
+            backgroundColor = JBColor(Color(0xE8, 0xE8, 0xE8, 0xD0), Color(0x55, 0x55, 0x55, 0xA0))
+        }
+
+        private const val SEARCH_LAYER_BASE = HighlighterLayer.SELECTION - 1
+        private const val SEARCH_LAYER_CURRENT = HighlighterLayer.SELECTION
+        private const val WORD_OCCURRENCE_LAYER = HighlighterLayer.SELECTION - 2
+
+        /** Stop scanning after this many hits to keep the UI responsive on huge pastes. */
+        private const val MAX_WORD_OCCURRENCE_HIGHLIGHTS = 8000
+
+        private const val WORD_HIGHLIGHT_DEBOUNCE_MS = 100
     }
 
     private val document: Document
@@ -68,10 +87,15 @@ class TextContentPanel(
     private var plainHighlighterConfigured = false
     private var detectionTimer: Timer? = null
     private var foldTimer: Timer? = null
+    private var wordOccurrenceTimer: Timer? = null
 
     // ── Search state ──
     private var searchMatchRanges: List<Pair<Int, Int>> = emptyList()
     private var currentMatchIndex = -1
+    private val searchRangeHighlighters = mutableListOf<RangeHighlighter>()
+
+    // ── Word occurrence highlights (caret / selection) ──
+    private val wordRangeHighlighters = mutableListOf<RangeHighlighter>()
 
     init {
         val factory = EditorFactory.getInstance()
@@ -99,11 +123,31 @@ class TextContentPanel(
                 if (!suppressEvents) {
                     scheduleNotify()
                     scheduleDetection()
+                    scheduleWordOccurrenceRefresh()
                 }
             }
         }, this)
 
+        editor.caretModel.addCaretListener(
+            object : CaretListener {
+                override fun caretPositionChanged(event: CaretEvent) {
+                    scheduleWordOccurrenceRefresh()
+                }
+            },
+            this,
+        )
+        editor.selectionModel.addSelectionListener(
+            object : SelectionListener {
+                override fun selectionChanged(event: SelectionEvent) {
+                    scheduleWordOccurrenceRefresh()
+                }
+            },
+            this,
+        )
+
         add(editor.component, BorderLayout.CENTER)
+
+        scheduleWordOccurrenceRefresh()
     }
 
     /**
@@ -162,6 +206,7 @@ class TextContentPanel(
         }
         suppressEvents = false
         detectAndApplyMode(text)
+        scheduleWordOccurrenceRefresh()
     }
 
     // ── Searchable implementation ──
@@ -186,13 +231,13 @@ class TextContentPanel(
         searchMatchRanges = matches
         val markupModel = editor.markupModel
 
-        // Add yellow highlights for all matches
         for ((start, end) in matches) {
-            markupModel.addRangeHighlighter(
-                start, end,
-                HighlighterLayer.SELECTION - 1,
+            addSearchHighlighter(
+                markupModel,
+                start,
+                end,
+                SEARCH_LAYER_BASE,
                 HIGHLIGHT_YELLOW,
-                HighlighterTargetArea.EXACT_RANGE
             )
         }
 
@@ -226,18 +271,39 @@ class TextContentPanel(
     // ── Internal highlight helpers ──
 
     private fun clearSearchHighlights() {
-        editor.markupModel.removeAllHighlighters()
+        for (h in searchRangeHighlighters) {
+            h.dispose()
+        }
+        searchRangeHighlighters.clear()
+    }
+
+    private fun addSearchHighlighter(
+        markupModel: MarkupModel,
+        start: Int,
+        end: Int,
+        layer: Int,
+        attributes: TextAttributes,
+    ) {
+        val h = markupModel.addRangeHighlighter(
+            start,
+            end,
+            layer,
+            attributes,
+            HighlighterTargetArea.EXACT_RANGE,
+        )
+        searchRangeHighlighters.add(h)
     }
 
     private fun reapplyHighlights() {
         clearSearchHighlights()
         val markupModel = editor.markupModel
         for ((start, end) in searchMatchRanges) {
-            markupModel.addRangeHighlighter(
-                start, end,
-                HighlighterLayer.SELECTION - 1,
+            addSearchHighlighter(
+                markupModel,
+                start,
+                end,
+                SEARCH_LAYER_BASE,
                 HIGHLIGHT_YELLOW,
-                HighlighterTargetArea.EXACT_RANGE
             )
         }
     }
@@ -245,11 +311,12 @@ class TextContentPanel(
     private fun highlightCurrentMatch() {
         if (currentMatchIndex < 0 || currentMatchIndex >= searchMatchRanges.size) return
         val (start, end) = searchMatchRanges[currentMatchIndex]
-        editor.markupModel.addRangeHighlighter(
-            start, end,
-            HighlighterLayer.SELECTION,
+        addSearchHighlighter(
+            editor.markupModel,
+            start,
+            end,
+            SEARCH_LAYER_CURRENT,
             HIGHLIGHT_ORANGE,
-            HighlighterTargetArea.EXACT_RANGE
         )
     }
 
@@ -259,6 +326,123 @@ class TextContentPanel(
         moveCaretToOffsetAndScroll(start, ScrollType.CENTER)
     }
 
+    // ── Word occurrence highlights (grey) ───────────────────────────────────
+
+    private fun scheduleWordOccurrenceRefresh() {
+        wordOccurrenceTimer?.stop()
+        wordOccurrenceTimer = Timer(WORD_HIGHLIGHT_DEBOUNCE_MS) {
+            refreshWordOccurrences()
+        }.also {
+            it.isRepeats = false
+            it.start()
+        }
+    }
+
+    private fun clearWordOccurrenceHighlights() {
+        for (h in wordRangeHighlighters) {
+            h.dispose()
+        }
+        wordRangeHighlighters.clear()
+    }
+
+    private fun refreshWordOccurrences() {
+        WriteIntentReadAction.run(Runnable {
+            val text = document.text
+            val sm = editor.selectionModel
+            val caretOffset = editor.caretModel.offset
+
+            val needle: String
+            val wholeWordOnly: Boolean
+            if (sm.hasSelection()) {
+                val s = sm.selectionStart
+                val e = sm.selectionEnd
+                if (e <= s) {
+                    clearWordOccurrenceHighlights()
+                    return@Runnable
+                }
+                needle = text.substring(s, e)
+                wholeWordOnly = false
+            } else {
+                val range = wordRangeAtCaret(text, caretOffset) ?: run {
+                    clearWordOccurrenceHighlights()
+                    return@Runnable
+                }
+                needle = text.substring(range.first, range.second)
+                wholeWordOnly = true
+            }
+
+            if (needle.length < 2) {
+                clearWordOccurrenceHighlights()
+                return@Runnable
+            }
+
+            val ranges = findOccurrenceRanges(text, needle, wholeWordOnly)
+            clearWordOccurrenceHighlights()
+            if (ranges.isEmpty()) return@Runnable
+
+            val markupModel = editor.markupModel
+            for ((start, end) in ranges) {
+                val h = markupModel.addRangeHighlighter(
+                    start,
+                    end,
+                    WORD_OCCURRENCE_LAYER,
+                    WORD_OCCURRENCE_GREY,
+                    HighlighterTargetArea.EXACT_RANGE,
+                )
+                wordRangeHighlighters.add(h)
+            }
+        })
+    }
+
+    /** Java-identifier-style word part, aligned with [PlainTextKeywordsLexer] (`$` included). */
+    private fun isWordPartChar(ch: Char): Boolean =
+        ch == '$' || Character.isJavaIdentifierPart(ch)
+
+    /**
+     * Returns the inclusive [start, end) range of the identifier under [offset], or null if the caret is not on a word.
+     */
+    private fun wordRangeAtCaret(text: String, offset: Int): Pair<Int, Int>? {
+        if (text.isEmpty()) return null
+        val o = offset.coerceIn(0, text.length)
+        val anchor = when {
+            o < text.length && isWordPartChar(text[o]) -> o
+            o > 0 && isWordPartChar(text[o - 1]) -> o - 1
+            else -> return null
+        }
+        var start = anchor
+        while (start > 0 && isWordPartChar(text[start - 1])) start--
+        var end = anchor + 1
+        while (end < text.length && isWordPartChar(text[end])) end++
+        return start to end
+    }
+
+    private fun findOccurrenceRanges(text: String, needle: String, wholeWordOnly: Boolean): List<Pair<Int, Int>> {
+        val out = ArrayList<Pair<Int, Int>>()
+        var idx = 0
+        while (idx <= text.length - needle.length) {
+            val found = text.indexOf(needle, idx)
+            if (found < 0) break
+            val end = found + needle.length
+            val ok = if (wholeWordOnly) {
+                isWordBoundaryBefore(text, found) && isWordBoundaryAfter(text, end)
+            } else {
+                true
+            }
+            if (ok) {
+                out.add(found to end)
+                if (out.size >= MAX_WORD_OCCURRENCE_HIGHLIGHTS) break
+            }
+            idx = found + 1
+        }
+        return out
+    }
+
+    private fun isWordBoundaryBefore(text: String, start: Int): Boolean =
+        start == 0 || !isWordPartChar(text[start - 1])
+
+    private fun isWordBoundaryAfter(text: String, end: Int): Boolean =
+        end >= text.length || !isWordPartChar(text[end])
+
     /** Stop all debounce timers. Call when the panel is being disposed. */
     fun stopTimers() {
         debounceTimer?.stop()
@@ -267,6 +451,8 @@ class TextContentPanel(
         detectionTimer = null
         foldTimer?.stop()
         foldTimer = null
+        wordOccurrenceTimer?.stop()
+        wordOccurrenceTimer = null
     }
 
     private fun scheduleNotify() {
@@ -587,6 +773,8 @@ class TextContentPanel(
 
     override fun dispose() {
         stopTimers()
+        clearWordOccurrenceHighlights()
+        clearSearchHighlights()
         EditorFactory.getInstance().releaseEditor(editor)
     }
 }
