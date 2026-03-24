@@ -27,6 +27,7 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.ui.table.JBTable
 import com.intellij.ui.content.ContentFactory
 import com.intellij.util.ui.JBUI
+import com.jsonviewer.ui.JsonViewerChrome
 import com.jsonviewer.ui.ideSeparatorColor
 import com.jsonviewer.ui.SearchPanel
 import com.jsonviewer.ui.Searchable
@@ -194,8 +195,11 @@ class JsonViewerPanel(
         addActionListener { enterNotesListSearchMode() }
     }
     private val notesListTopBar = JPanel(CardLayout()).apply {
-        border = JBUI.Borders.customLine(ideSeparatorColor(), 0, 0, 1, 0)
-        minimumSize = Dimension(0, JBUI.scale(36))
+        border = JsonViewerChrome.bottomToolbarBorder()
+        val h = JsonViewerChrome.toolbarRowHeight()
+        minimumSize = Dimension(0, h)
+        preferredSize = Dimension(0, h)
+        maximumSize = Dimension(Int.MAX_VALUE, h)
     }
 
     // ── Shared search bar ──
@@ -214,7 +218,6 @@ class JsonViewerPanel(
 
     // ── Tab bar widgets ──
     private val tabTitleLabel = JBLabel("").apply {
-        border = JBUI.Borders.emptyLeft(JBUI.scale(8))
         font = font.deriveFont(Font.PLAIN, 12f)
     }
     private val prevTabBtn = tabNavIconButton(AllIcons.Actions.Back, "Previous tab")
@@ -229,18 +232,15 @@ class JsonViewerPanel(
     private val settingsFontSizeSpinner = JSpinner(
         SpinnerNumberModel(13, JsonViewerUiSettings.MIN_FONT_SIZE, JsonViewerUiSettings.MAX_FONT_SIZE, 1)
     )
-    private val settingsOkBtn = JButton("OK").apply {
-        margin = JBUI.insets(4, 16, 4, 16)
-    }
-    private val settingsCancelBtn = JButton("Cancel").apply {
-        margin = JBUI.insets(4, 16, 4, 16)
-    }
+    private val settingsSaveBtn = JButton("Save")
+    private val settingsDiscardBtn = JButton("Discard")
     private val settingsHideCopyCb = JCheckBox("Hide copy")
     private val settingsHidePasteCb = JCheckBox("Hide paste")
     private val settingsHideFormatCb = JCheckBox("Hide format")
     private val settingsHideMinifyCb = JCheckBox("Hide minify")
     private val settingsHideViewerCb = JCheckBox("Hide viewer")
     private val settingsHideOpenInEditorCb = JCheckBox("Hide open in main editor")
+    private val settingsShowSideToolbarCb = JCheckBox("Show side toolbar")
     /** Keyboard shortcuts table model; rows match [JsonNotesShortcutsUi.ACTION_ROWS]. */
     private var settingsShortcutsTableModel: DefaultTableModel? = null
 
@@ -251,50 +251,79 @@ class JsonViewerPanel(
 
     /** Vertical rule between Text/Viewer toggles and the New tab group; hidden when mode toggles are hidden. */
     private val headerAfterTextViewerSeparator = headerVerticalSeparator()
+    /** Vertical rule between New tab and Prev/Next. */
+    private val headerNewPrevSeparator = headerVerticalSeparator()
+
+    private val sideTextBtn = headerToggleIconButton(AllIcons.FileTypes.Text, "Text")
+    private val sideViewerBtn = headerToggleIconButton(AllIcons.Json.Object, "Viewer")
+    private val sideOpenInEditorBtn = tabNavIconButton(AllIcons.General.FitContent, "Open in main editor")
+    private val sideListTabsBtn = tabNavIconButton(AllIcons.General.Tree, "All notes (list)")
+    private val sideSettingsTabsBtn = tabNavIconButton(AllIcons.General.Settings, "Settings")
+    private val sidePasteBtn = actionIconButton(AllIcons.Actions.MenuPaste, "Paste") { pasteFromClipboard() }
+    private val sideCopyBtn = actionIconButton(AllIcons.Actions.Copy, "Copy") { copyToClipboard() }
+    private val sideFormatBtn = actionIconButton(AllIcons.Diff.MagicResolveToolbar, "Format") { formatText() }
+    private val sideMinifyBtn = actionIconButton(minifyIcon(), "Minify") { minifyText() }
+
+    private lateinit var headerPanel: JPanel
+    private lateinit var tabBarPanel: JPanel
+    private lateinit var topChromePanel: JPanel
+    private lateinit var tabBarRightPanel: JPanel
+    private lateinit var headerLeftPanel: JPanel
+    private lateinit var headerRightPanel: JPanel
+    private lateinit var sideToolbarPanel: JPanel
 
     init {
         // ── Header (no title; responsive wrap) ──────────────────────────────
-        val header = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.customLine(ideSeparatorColor(), 0, 0, 1, 0)
-            minimumSize = Dimension(0, JBUI.scale(28))
-        }
-
-        // Left: Text/Viewer | New tab | Prev/Next | error
+        // Left: Text/Viewer | New tab | Delete | | Prev/Next | error
         val headerLeft = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(2), 0).apply { alignOnBaseline = true }).apply {
             isOpaque = false
-            border = JBUI.Borders.emptyLeft(JBUI.scale(4))
         }
         headerLeft.add(textBtn)
         headerLeft.add(viewerBtn)
         headerLeft.add(headerAfterTextViewerSeparator)
         headerLeft.add(newTabBtn)
-        headerLeft.add(headerVerticalSeparator())
+        headerLeft.add(deleteTabBtn)
+        headerLeft.add(headerNewPrevSeparator)
         headerLeft.add(prevTabBtn)
         headerLeft.add(nextTabBtn)
         headerLeft.add(errorLabel)
+        headerLeftPanel = headerLeft
 
         // Right: action icon buttons (Paste, Copy, Format, Minify)
         val headerRight = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(2), 0).apply { alignOnBaseline = true }).apply {
             isOpaque = false
-            border = JBUI.Borders.emptyRight(JBUI.scale(4))
         }
         headerRight.add(pasteBtn)
         headerRight.add(copyBtn)
         headerRight.add(formatBtn)
         headerRight.add(minifyBtn)
+        headerRightPanel = headerRight
 
-        header.add(headerLeft, BorderLayout.WEST)
-        header.add(headerRight, BorderLayout.EAST)
-
-        // ── Tab bar: tab title + delete ───────────────────────────────────────
-        val tabBar = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.customLine(ideSeparatorColor(), 0, 0, 1, 0)
-            minimumSize = Dimension(0, JBUI.scale(28))
+        headerPanel = JPanel(GridBagLayout()).apply {
+            border = JsonViewerChrome.bottomToolbarBorder()
+            val h = JsonViewerChrome.toolbarRowHeight()
+            minimumSize = Dimension(0, h)
+            preferredSize = Dimension(0, h)
+            maximumSize = Dimension(Int.MAX_VALUE, h)
+            val gbc = GridBagConstraints()
+            gbc.gridx = 0
+            gbc.gridy = 0
+            gbc.weightx = 1.0
+            gbc.weighty = 1.0
+            gbc.anchor = GridBagConstraints.WEST
+            gbc.fill = GridBagConstraints.VERTICAL
+            gbc.insets = JBUI.insets(0)
+            add(headerLeft, gbc)
+            gbc.gridx = 1
+            gbc.weightx = 0.0
+            gbc.anchor = GridBagConstraints.EAST
+            gbc.insets = JBUI.insets(0)
+            add(headerRight, gbc)
         }
 
+        // ── Tab bar: tab title + delete ───────────────────────────────────────
         val tabBarLeft = JPanel(BorderLayout()).apply {
             isOpaque = false
-            border = JBUI.Borders.emptyLeft(JBUI.scale(6))
         }
         tabTitleLabel.verticalAlignment = SwingConstants.CENTER
         tabTitleLabel.horizontalAlignment = SwingConstants.LEFT
@@ -302,23 +331,43 @@ class JsonViewerPanel(
 
         val tabBarRight = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(2), 0).apply { alignOnBaseline = true }).apply {
             isOpaque = false
-            border = JBUI.Borders.emptyRight(JBUI.scale(4))
         }
         tabBarRight.add(openInEditorBtn)
-        tabBarRight.add(deleteTabBtn)
         tabBarRight.add(headerVerticalSeparator())
         tabBarRight.add(listTabsBtn)
         tabBarRight.add(settingsTabsBtn)
+        tabBarRightPanel = tabBarRight
 
-        tabBar.add(tabBarLeft, BorderLayout.WEST)
-        tabBar.add(tabBarRight, BorderLayout.EAST)
+        tabBarPanel = JPanel(GridBagLayout()).apply {
+            border = JsonViewerChrome.bottomToolbarBorder()
+            val h = JsonViewerChrome.toolbarRowHeight()
+            minimumSize = Dimension(0, h)
+            preferredSize = Dimension(0, h)
+            maximumSize = Dimension(Int.MAX_VALUE, h)
+            val gbc = GridBagConstraints()
+            gbc.gridx = 0
+            gbc.gridy = 0
+            gbc.weightx = 1.0
+            gbc.weighty = 1.0
+            gbc.anchor = GridBagConstraints.WEST
+            gbc.fill = GridBagConstraints.VERTICAL
+            gbc.insets = JBUI.insets(0, JsonViewerChrome.tabTitleLeadingInset(), 0, 0)
+            add(tabBarLeft, gbc)
+            gbc.gridx = 1
+            gbc.weightx = 0.0
+            gbc.anchor = GridBagConstraints.EAST
+            gbc.insets = JBUI.insets(0)
+            add(tabBarRight, gbc)
+        }
 
         // ── Top chrome (tab bar on top, header below) ────────────────────────
-        val topChrome = JPanel().apply {
+        topChromePanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            add(tabBar)
-            add(header)
+            add(tabBarPanel)
+            add(headerPanel)
         }
+
+        sideToolbarPanel = buildSideToolbarPanel()
 
         // ── Content stack ────────────────────────────────────────────────────
         contentStack.add(textContent, "text")
@@ -334,7 +383,12 @@ class JsonViewerPanel(
         val notesListHeaderDefault = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
             isOpaque = false
-            border = JBUI.Borders.empty(4, JBUI.scale(6), 4, JBUI.scale(6))
+            border = JBUI.Borders.empty(
+                JsonViewerChrome.overlayHeaderVerticalPadding(),
+                JsonViewerChrome.horizontalInset(),
+                JsonViewerChrome.overlayHeaderVerticalPadding(),
+                JsonViewerChrome.horizontalInset(),
+            )
             add(notesListBackBtn.apply { alignmentY = Component.CENTER_ALIGNMENT })
             add(Box.createHorizontalStrut(JBUI.scale(8)))
             add(notesListTitleLabel)
@@ -343,14 +397,22 @@ class JsonViewerPanel(
         }
         val notesListHeaderSearch = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
-            border = JBUI.Borders.empty(4, JBUI.scale(8), 4, JBUI.scale(8))
+            border = JBUI.Borders.empty(
+                JsonViewerChrome.overlayHeaderVerticalPadding(),
+                JsonViewerChrome.horizontalInset(),
+                JsonViewerChrome.overlayHeaderVerticalPadding(),
+                JsonViewerChrome.horizontalInset(),
+            )
             isOpaque = false
             add(notesListSearchBackBtn.apply { alignmentY = Component.CENTER_ALIGNMENT })
             add(Box.createHorizontalStrut(JBUI.scale(8)))
             add(
                 notesListSearchField.apply {
                     alignmentY = Component.CENTER_ALIGNMENT
-                    maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(32))
+                    maximumSize = Dimension(
+                        Int.MAX_VALUE,
+                        JsonViewerChrome.toolbarRowHeight() - 2 * JsonViewerChrome.overlayHeaderVerticalPadding(),
+                    )
                 }
             )
             add(Box.createHorizontalStrut(JBUI.scale(8)))
@@ -402,7 +464,12 @@ class JsonViewerPanel(
         val settingsHeaderRow = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
             isOpaque = false
-            border = JBUI.Borders.empty(4, JBUI.scale(6), 4, JBUI.scale(6))
+            border = JBUI.Borders.empty(
+                JsonViewerChrome.overlayHeaderVerticalPadding(),
+                JsonViewerChrome.horizontalInset(),
+                JsonViewerChrome.overlayHeaderVerticalPadding(),
+                JsonViewerChrome.horizontalInset(),
+            )
             add(settingsBackBtn.apply { alignmentY = Component.CENTER_ALIGNMENT })
             add(Box.createHorizontalStrut(JBUI.scale(8)))
             add(settingsTitleLabel)
@@ -462,6 +529,15 @@ class JsonViewerPanel(
                     alignmentX = Component.LEFT_ALIGNMENT
                     maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(120))
                     add(toolbarCheckboxGrid)
+                }
+            )
+            add(Box.createVerticalStrut(JBUI.scale(8)))
+            add(
+                JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                    isOpaque = false
+                    alignmentX = Component.LEFT_ALIGNMENT
+                    maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(28))
+                    add(settingsShowSideToolbarCb)
                 }
             )
             add(Box.createVerticalStrut(JBUI.scale(16)))
@@ -556,17 +632,30 @@ class JsonViewerPanel(
             horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
             verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
         }
-        val settingsFooterRow = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(8), 0)).apply {
+        val settingsFooterActions = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
             isOpaque = false
-            border = JBUI.Borders.empty(8, JBUI.scale(12), 8, JBUI.scale(12))
-            add(settingsCancelBtn)
-            add(settingsOkBtn)
+            settingsDiscardBtn.alignmentY = Component.CENTER_ALIGNMENT
+            settingsSaveBtn.alignmentY = Component.CENTER_ALIGNMENT
+            add(Box.createHorizontalGlue())
+            add(settingsDiscardBtn)
+            add(Box.createHorizontalStrut(JBUI.scale(8)))
+            add(settingsSaveBtn)
+        }
+        val settingsFooterRow = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(JBUI.scale(10), JBUI.scale(12), JBUI.scale(10), JBUI.scale(12))
+            minimumSize = Dimension(0, JBUI.scale(40))
+            add(settingsFooterActions, BorderLayout.CENTER)
         }
         val settingsOverlay = JPanel(BorderLayout()).apply {
             add(
                 JPanel(BorderLayout()).apply {
-                    border = JBUI.Borders.customLine(ideSeparatorColor(), 0, 0, 1, 0)
-                    minimumSize = Dimension(0, JBUI.scale(36))
+                    border = JsonViewerChrome.bottomToolbarBorder()
+                    val h = JsonViewerChrome.toolbarRowHeight()
+                    minimumSize = Dimension(0, h)
+                    preferredSize = Dimension(0, h)
+                    maximumSize = Dimension(Int.MAX_VALUE, h)
                     add(settingsHeaderRow, BorderLayout.CENTER)
                 },
                 BorderLayout.NORTH
@@ -575,14 +664,14 @@ class JsonViewerPanel(
             add(
                 JPanel(BorderLayout()).apply {
                     border = JBUI.Borders.customLine(ideSeparatorColor(), 1, 0, 0, 0)
-                    add(settingsFooterRow, BorderLayout.EAST)
+                    add(settingsFooterRow, BorderLayout.CENTER)
                 },
                 BorderLayout.SOUTH
             )
         }
-        settingsBackBtn.addActionListener { cancelSettingsOverlay() }
-        settingsOkBtn.addActionListener { applySettingsAndClose() }
-        settingsCancelBtn.addActionListener { cancelSettingsOverlay() }
+        settingsBackBtn.addActionListener { requestCloseSettingsOverlay() }
+        settingsSaveBtn.addActionListener { applySettingsAndClose() }
+        settingsDiscardBtn.addActionListener { requestCloseSettingsOverlay() }
         settingsOverlay.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(
             KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
             "closeSettingsOverlay"
@@ -591,7 +680,7 @@ class JsonViewerPanel(
             "closeSettingsOverlay",
             object : AbstractAction() {
                 override fun actionPerformed(e: ActionEvent) {
-                    cancelSettingsOverlay()
+                    requestCloseSettingsOverlay()
                 }
             }
         )
@@ -603,10 +692,17 @@ class JsonViewerPanel(
         searchPanel.onPrevious = { dispatchNavigate(-1) }
         searchPanel.onClose = { closeSearch() }
 
-        val mainViewPanel = JPanel(BorderLayout()).apply {
-            add(topChrome, BorderLayout.NORTH)
+        val editorColumn = JPanel(BorderLayout()).apply {
             add(contentStack, BorderLayout.CENTER)
             add(searchPanel, BorderLayout.SOUTH)
+        }
+        val mainCenterColumn = JPanel(BorderLayout()).apply {
+            add(topChromePanel, BorderLayout.NORTH)
+            add(sideToolbarPanel, BorderLayout.WEST)
+            add(editorColumn, BorderLayout.CENTER)
+        }
+        val mainViewPanel = JPanel(BorderLayout()).apply {
+            add(mainCenterColumn, BorderLayout.CENTER)
         }
 
         rootStack.add(mainViewPanel, ROOT_CARD_MAIN)
@@ -626,6 +722,16 @@ class JsonViewerPanel(
         deleteTabBtn.addActionListener { deleteTab() }
         listTabsBtn.addActionListener { showNotesListOverlay() }
         settingsTabsBtn.addActionListener { showSettingsOverlay() }
+
+        sideTextBtn.addActionListener { textBtn.doClick() }
+        sideViewerBtn.addActionListener { viewerBtn.doClick() }
+        sideOpenInEditorBtn.addActionListener { openInEditorBtn.doClick() }
+        sideListTabsBtn.addActionListener { listTabsBtn.doClick() }
+        sideSettingsTabsBtn.addActionListener { settingsTabsBtn.doClick() }
+        sidePasteBtn.addActionListener { pasteBtn.doClick() }
+        sideCopyBtn.addActionListener { copyBtn.doClick() }
+        sideFormatBtn.addActionListener { formatBtn.doClick() }
+        sideMinifyBtn.addActionListener { minifyBtn.doClick() }
 
         // ── Cmd+F at root level → open shared search bar ─────────────────
         val im = getInputMap(WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
@@ -707,6 +813,12 @@ class JsonViewerPanel(
         viewerBtn.putClientProperty("selected", !isText)
         styleToggleButton(textBtn, isText)
         styleToggleButton(viewerBtn, !isText)
+        sideTextBtn.isEnabled = !isText
+        sideViewerBtn.isEnabled = isText
+        sideTextBtn.putClientProperty("selected", isText)
+        sideViewerBtn.putClientProperty("selected", !isText)
+        styleToggleButton(sideTextBtn, isText)
+        styleToggleButton(sideViewerBtn, !isText)
     }
 
     // ── Tab operations ────────────────────────────────────────────────────────
@@ -865,7 +977,7 @@ class JsonViewerPanel(
         settingsOverlayOpen = true
         syncSettingsUiFromState()
         showRootCard(ROOT_CARD_SETTINGS)
-        settingsOkBtn.requestFocusInWindow()
+        settingsSaveBtn.requestFocusInWindow()
     }
 
     private fun hideSettingsOverlay() {
@@ -874,11 +986,45 @@ class JsonViewerPanel(
         reapplySearch()
     }
 
-    /** Discard edits and close (Back, Cancel, Escape). */
-    private fun cancelSettingsOverlay() {
+    /**
+     * Back, Discard, or Escape: closes the overlay if there are no edits, or shows
+     * Save / Don't Save / Cancel (Cancel keeps Settings open).
+     */
+    private fun requestCloseSettingsOverlay() {
         if (!settingsOverlayOpen) return
-        syncSettingsUiFromState()
-        hideSettingsOverlay()
+        if (settingsFormMatchesPersisted()) {
+            hideSettingsOverlay()
+            return
+        }
+        val result = Messages.showDialog(
+            this,
+            "Save changes to Settings?",
+            "JSON Notes",
+            arrayOf("Save", "Don't Save", "Cancel"),
+            2,
+            Messages.getWarningIcon()
+        )
+        when (result) {
+            0 -> applySettingsAndClose()
+            1 -> hideSettingsOverlay()
+            2, -1 -> Unit
+            else -> Unit
+        }
+    }
+
+    private fun settingsFormMatchesPersisted(): Boolean {
+        val family = settingsFontFamilyCombo.selectedItem as? String ?: return false
+        val size = (settingsFontSizeSpinner.value as? Number)?.toInt() ?: return false
+        if (family != uiSettings.fontFamily()) return false
+        if (size != uiSettings.fontSize()) return false
+        if (settingsHideCopyCb.isSelected != uiSettings.hideCopy()) return false
+        if (settingsHidePasteCb.isSelected != uiSettings.hidePaste()) return false
+        if (settingsHideFormatCb.isSelected != uiSettings.hideFormat()) return false
+        if (settingsHideMinifyCb.isSelected != uiSettings.hideMinify()) return false
+        if (settingsHideViewerCb.isSelected != uiSettings.hideViewer()) return false
+        if (settingsHideOpenInEditorCb.isSelected != uiSettings.hideOpenInMainEditor()) return false
+        if (settingsShowSideToolbarCb.isSelected != uiSettings.showSideToolbar()) return false
+        return true
     }
 
     /** Persist font from the form, apply to the text editor, and close. */
@@ -906,6 +1052,7 @@ class JsonViewerPanel(
         settingsHideMinifyCb.isSelected = uiSettings.hideMinify()
         settingsHideViewerCb.isSelected = uiSettings.hideViewer()
         settingsHideOpenInEditorCb.isSelected = uiSettings.hideOpenInMainEditor()
+        settingsShowSideToolbarCb.isSelected = uiSettings.showSideToolbar()
         val tm = settingsShortcutsTableModel
         if (tm != null) {
             for (i in JsonNotesShortcutsUi.ACTION_ROWS.indices) {
@@ -940,12 +1087,41 @@ class JsonViewerPanel(
             hideMinify = settingsHideMinifyCb.isSelected,
             hideViewer = settingsHideViewerCb.isSelected,
             hideOpenInMainEditor = settingsHideOpenInEditorCb.isSelected,
+            showSideToolbar = settingsShowSideToolbarCb.isSelected,
         )
         applyHeaderToolbarVisibility()
     }
 
-    /** Show or hide header icon buttons according to persisted settings. */
+    /** Show or hide header / side toolbar buttons according to persisted settings. */
     private fun applyHeaderToolbarVisibility() {
+        applySideToolbarActionVisibility()
+        if (uiSettings.showSideToolbar()) {
+            applySideToolbarHorizontalChrome()
+        } else {
+            applyHorizontalToolbarChrome()
+        }
+        if (uiSettings.hideViewer() && viewMode == ViewMode.VIEWER) {
+            switchToTextMode()
+        } else {
+            updateToggleState()
+        }
+        revalidate()
+        repaint()
+    }
+
+    private fun applySideToolbarActionVisibility() {
+        sideToolbarPanel.isVisible = uiSettings.showSideToolbar()
+        sideCopyBtn.isVisible = !uiSettings.hideCopy()
+        sidePasteBtn.isVisible = !uiSettings.hidePaste()
+        sideFormatBtn.isVisible = !uiSettings.hideFormat()
+        sideMinifyBtn.isVisible = !uiSettings.hideMinify()
+        val hideTextViewer = uiSettings.hideViewer()
+        sideTextBtn.isVisible = !hideTextViewer
+        sideViewerBtn.isVisible = !hideTextViewer
+        sideOpenInEditorBtn.isVisible = !uiSettings.hideOpenInMainEditor()
+    }
+
+    private fun applyHorizontalToolbarChrome() {
         copyBtn.isVisible = !uiSettings.hideCopy()
         pasteBtn.isVisible = !uiSettings.hidePaste()
         formatBtn.isVisible = !uiSettings.hideFormat()
@@ -954,14 +1130,62 @@ class JsonViewerPanel(
         textBtn.isVisible = !hideTextViewer
         viewerBtn.isVisible = !hideTextViewer
         headerAfterTextViewerSeparator.isVisible = !hideTextViewer
+        newTabBtn.isVisible = true
+        deleteTabBtn.isVisible = true
+        headerNewPrevSeparator.isVisible = true
+        prevTabBtn.isVisible = true
+        nextTabBtn.isVisible = true
+        headerRightPanel.isVisible = true
+        tabBarRightPanel.isVisible = true
         openInEditorBtn.isVisible = !uiSettings.hideOpenInMainEditor()
-        if (uiSettings.hideViewer() && viewMode == ViewMode.VIEWER) {
-            switchToTextMode()
-        } else {
-            updateToggleState()
+        headerPanel.isVisible = true
+    }
+
+    private fun applySideToolbarHorizontalChrome() {
+        copyBtn.isVisible = false
+        pasteBtn.isVisible = false
+        formatBtn.isVisible = false
+        minifyBtn.isVisible = false
+        textBtn.isVisible = false
+        viewerBtn.isVisible = false
+        headerAfterTextViewerSeparator.isVisible = false
+        newTabBtn.isVisible = true
+        deleteTabBtn.isVisible = true
+        headerNewPrevSeparator.isVisible = true
+        prevTabBtn.isVisible = true
+        nextTabBtn.isVisible = true
+        headerRightPanel.isVisible = false
+        tabBarRightPanel.isVisible = false
+        headerPanel.isVisible = true
+    }
+
+    private fun buildSideToolbarPanel(): JPanel {
+        val w = JBUI.scale(40)
+        fun alignBtn(btn: JComponent) {
+            btn.alignmentX = Component.CENTER_ALIGNMENT
+            btn.maximumSize = Dimension(w, btn.preferredSize.height)
         }
-        revalidate()
-        repaint()
+        return JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            alignmentX = Component.CENTER_ALIGNMENT
+            border = JBUI.Borders.empty(0, 0, JBUI.scale(4), 0)
+            preferredSize = Dimension(w, 0)
+            minimumSize = Dimension(w, 0)
+            maximumSize = Dimension(w, Int.MAX_VALUE)
+            isOpaque = true
+            add(sideTextBtn.also { alignBtn(it) })
+            add(sideViewerBtn.also { alignBtn(it) })
+            add(toolbarHorizontalSeparator())
+            add(sidePasteBtn.also { alignBtn(it) })
+            add(sideCopyBtn.also { alignBtn(it) })
+            add(sideFormatBtn.also { alignBtn(it) })
+            add(sideMinifyBtn.also { alignBtn(it) })
+            add(toolbarHorizontalSeparator())
+            add(sideOpenInEditorBtn.also { alignBtn(it) })
+            add(sideListTabsBtn.also { alignBtn(it) })
+            add(sideSettingsTabsBtn.also { alignBtn(it) })
+            add(Box.createVerticalGlue())
+        }
     }
 
     private fun applyUiSettingsToEditor() {
@@ -1380,6 +1604,36 @@ class JsonViewerPanel(
                     g2.color = headerSeparatorLineColor()
                     val y = (height - lineHeight) / 2
                     g2.fillRect(padH, y, lineW, lineHeight)
+                } finally {
+                    g2.dispose()
+                }
+            }
+        }
+    }
+
+    /** Horizontal rule between vertical toolbar groups (side toolbar). */
+    private fun toolbarHorizontalSeparator(): JComponent {
+        val lineH = JBUI.scale(1).coerceAtLeast(1)
+        val padV = JBUI.scale(4)
+        return object : JComponent() {
+            init {
+                isOpaque = false
+            }
+
+            override fun getPreferredSize(): Dimension = Dimension(JBUI.scale(32), lineH + 2 * padV)
+            override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, lineH + 2 * padV)
+            override fun getMinimumSize(): Dimension = Dimension(0, lineH + 2 * padV)
+
+            override fun paintComponent(g: Graphics) {
+                super.paintComponent(g)
+                val g2 = g.create() as Graphics2D
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF)
+                    g2.color = headerSeparatorLineColor()
+                    val y = (height - lineH) / 2
+                    val x0 = JBUI.scale(4)
+                    val x1 = width - JBUI.scale(4)
+                    g2.fillRect(x0, y, (x1 - x0).coerceAtLeast(0), lineH)
                 } finally {
                     g2.dispose()
                 }

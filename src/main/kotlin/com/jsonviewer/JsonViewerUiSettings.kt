@@ -23,8 +23,9 @@ data class JsonViewerUiState(
     @Tag("hideMinify") var hideMinify: Boolean = false,
     @Tag("hideViewer") var hideViewer: Boolean = false,
     @Tag("hideOpenInMainEditor") var hideOpenInMainEditor: Boolean = false,
+    @Tag("showSideToolbar") var showSideToolbar: Boolean = true,
 ) {
-    constructor() : this("", 13, false, false, false, false, false, false)
+    constructor() : this("", 13, false, false, false, false, false, false, true)
 }
 
 @State(
@@ -65,6 +66,8 @@ class JsonViewerUiSettings : PersistentStateComponent<JsonViewerUiState> {
 
     fun hideOpenInMainEditor(): Boolean = myState.hideOpenInMainEditor
 
+    fun showSideToolbar(): Boolean = myState.showSideToolbar
+
     fun updateToolbarVisibility(
         hideCopy: Boolean,
         hidePaste: Boolean,
@@ -72,6 +75,7 @@ class JsonViewerUiSettings : PersistentStateComponent<JsonViewerUiState> {
         hideMinify: Boolean,
         hideViewer: Boolean,
         hideOpenInMainEditor: Boolean,
+        showSideToolbar: Boolean,
     ) {
         myState.hideCopy = hideCopy
         myState.hidePaste = hidePaste
@@ -79,6 +83,7 @@ class JsonViewerUiSettings : PersistentStateComponent<JsonViewerUiState> {
         myState.hideMinify = hideMinify
         myState.hideViewer = hideViewer
         myState.hideOpenInMainEditor = hideOpenInMainEditor
+        myState.showSideToolbar = showSideToolbar
     }
 
     private fun normalizeState() {

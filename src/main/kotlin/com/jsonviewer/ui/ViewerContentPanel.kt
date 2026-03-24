@@ -104,7 +104,12 @@ class ViewerContentPanel : JPanel(BorderLayout()), Searchable {
         val rightPanel = JPanel(BorderLayout())
         val viewerToolbar = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0)).apply {
             isOpaque = false
-            border = JBUI.Borders.empty(2, 2)
+            border = JBUI.Borders.empty(
+                (JsonViewerChrome.toolbarRowHeight() - JBUI.scale(24)) / 2,
+                JsonViewerChrome.horizontalInset(),
+                (JsonViewerChrome.toolbarRowHeight() - JBUI.scale(24)) / 2,
+                JsonViewerChrome.horizontalInset(),
+            )
         }
         viewerToolbar.add(viewerToolbarButton(AllIcons.Toolbar.Expand, "Expand") { doExpand() })
         viewerToolbar.add(viewerToolbarButton(AllIcons.Toolbar.Collapse, "Collapse") { doCollapse() })

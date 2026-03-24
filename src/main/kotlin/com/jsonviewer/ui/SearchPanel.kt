@@ -29,7 +29,13 @@ interface Searchable {
 // Search panel (bottom bar)
 // ──────────────────────────────────────────────────────────────────────────────
 
-class SearchPanel : JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 3)) {
+class SearchPanel : JPanel(
+    java.awt.FlowLayout(
+        java.awt.FlowLayout.LEFT,
+        JBUI.scale(8),
+        JBUI.scale(4),
+    ),
+) {
 
     private val searchField = JBTextField()
     private val statusLabel = JBLabel("")
@@ -41,10 +47,15 @@ class SearchPanel : JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 3)) 
     var onClose: () -> Unit = {}
 
     init {
-        border = JBUI.Borders.customLine(ideSeparatorColor(), 1, 0, 0, 0)
+        border = JBUI.Borders.merge(
+            JsonViewerChrome.topToolbarBorder(),
+            JBUI.Borders.empty(0, JsonViewerChrome.horizontalInset(), 0, JsonViewerChrome.horizontalInset()),
+            true,
+        )
 
         add(JBLabel("Search:"))
-        searchField.preferredSize = Dimension(200, 26)
+        val fieldH = (JsonViewerChrome.toolbarRowHeight() - JBUI.scale(6)).coerceAtLeast(JBUI.scale(22))
+        searchField.preferredSize = Dimension(JBUI.scale(200), fieldH)
         searchField.addActionListener { onNext() }
         searchField.document.addDocumentListener(object : javax.swing.event.DocumentListener {
             override fun insertUpdate(e: javax.swing.event.DocumentEvent) = debounce()
