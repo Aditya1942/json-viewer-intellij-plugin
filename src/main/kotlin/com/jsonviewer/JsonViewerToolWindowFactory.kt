@@ -241,6 +241,8 @@ class JsonViewerPanel(
     private val settingsHideViewerCb = JCheckBox("Hide viewer")
     private val settingsHideOpenInEditorCb = JCheckBox("Hide open in main editor")
     private val settingsShowSideToolbarCb = JCheckBox("Show side toolbar")
+    private val settingsPlainTextKeywordHlCb =
+        JCheckBox("Text color schema")
     /** Keyboard shortcuts table model; rows match [JsonNotesShortcutsUi.ACTION_ROWS]. */
     private var settingsShortcutsTableModel: DefaultTableModel? = null
 
@@ -538,6 +540,15 @@ class JsonViewerPanel(
                     alignmentX = Component.LEFT_ALIGNMENT
                     maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(28))
                     add(settingsShowSideToolbarCb)
+                }
+            )
+            add(Box.createVerticalStrut(JBUI.scale(6)))
+            add(
+                JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                    isOpaque = false
+                    alignmentX = Component.LEFT_ALIGNMENT
+                    maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(28))
+                    add(settingsPlainTextKeywordHlCb)
                 }
             )
             add(Box.createVerticalStrut(JBUI.scale(16)))
@@ -1024,6 +1035,7 @@ class JsonViewerPanel(
         if (settingsHideViewerCb.isSelected != uiSettings.hideViewer()) return false
         if (settingsHideOpenInEditorCb.isSelected != uiSettings.hideOpenInMainEditor()) return false
         if (settingsShowSideToolbarCb.isSelected != uiSettings.showSideToolbar()) return false
+        if (settingsPlainTextKeywordHlCb.isSelected != uiSettings.plainTextKeywordHighlightingEnabled()) return false
         return true
     }
 
@@ -1032,6 +1044,7 @@ class JsonViewerPanel(
         if (!settingsOverlayOpen) return
         persistFontFromSettingsUi()
         persistToolbarFromSettingsUi()
+        persistPlainTextKeywordHighlightingFromSettingsUi()
         hideSettingsOverlay()
     }
 
@@ -1053,6 +1066,7 @@ class JsonViewerPanel(
         settingsHideViewerCb.isSelected = uiSettings.hideViewer()
         settingsHideOpenInEditorCb.isSelected = uiSettings.hideOpenInMainEditor()
         settingsShowSideToolbarCb.isSelected = uiSettings.showSideToolbar()
+        settingsPlainTextKeywordHlCb.isSelected = uiSettings.plainTextKeywordHighlightingEnabled()
         val tm = settingsShortcutsTableModel
         if (tm != null) {
             for (i in JsonNotesShortcutsUi.ACTION_ROWS.indices) {
@@ -1090,6 +1104,11 @@ class JsonViewerPanel(
             showSideToolbar = settingsShowSideToolbarCb.isSelected,
         )
         applyHeaderToolbarVisibility()
+    }
+
+    private fun persistPlainTextKeywordHighlightingFromSettingsUi() {
+        uiSettings.updatePlainTextKeywordHighlighting(settingsPlainTextKeywordHlCb.isSelected)
+        textContent.refreshPlainTextHighlighter()
     }
 
     /** Show or hide header / side toolbar buttons according to persisted settings. */

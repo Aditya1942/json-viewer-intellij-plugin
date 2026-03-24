@@ -24,8 +24,9 @@ data class JsonViewerUiState(
     @Tag("hideViewer") var hideViewer: Boolean = false,
     @Tag("hideOpenInMainEditor") var hideOpenInMainEditor: Boolean = false,
     @Tag("showSideToolbar") var showSideToolbar: Boolean = true,
+    @Tag("plainTextKeywordHighlightingEnabled") var plainTextKeywordHighlightingEnabled: Boolean = true,
 ) {
-    constructor() : this("", 13, false, false, false, false, false, false, true)
+    constructor() : this("", 13, false, false, false, false, false, false, true, true)
 }
 
 @State(
@@ -67,6 +68,12 @@ class JsonViewerUiSettings : PersistentStateComponent<JsonViewerUiState> {
     fun hideOpenInMainEditor(): Boolean = myState.hideOpenInMainEditor
 
     fun showSideToolbar(): Boolean = myState.showSideToolbar
+
+    fun plainTextKeywordHighlightingEnabled(): Boolean = myState.plainTextKeywordHighlightingEnabled
+
+    fun updatePlainTextKeywordHighlighting(enabled: Boolean) {
+        myState.plainTextKeywordHighlightingEnabled = enabled
+    }
 
     fun updateToolbarVisibility(
         hideCopy: Boolean,

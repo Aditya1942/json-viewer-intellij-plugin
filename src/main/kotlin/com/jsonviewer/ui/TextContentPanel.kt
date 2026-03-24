@@ -64,6 +64,8 @@ class TextContentPanel(
 
     // ── Auto-detect JSON mode ──
     private var isJsonMode = false
+    /** True after [applyPlainTextHighlighterInternal] ran for the current plain-text stretch (avoids re-creating highlighter every keystroke). */
+    private var plainHighlighterConfigured = false
     private var detectionTimer: Timer? = null
     private var foldTimer: Timer? = null
 
@@ -435,36 +437,71 @@ class TextContentPanel(
             isJsonMode = false
             return
         }
+        plainHighlighterConfigured = false
         updateFoldRegions()
     }
 
     /**
      * Switch to plain text mode — remove JSON highlighting and clear fold regions.
-     * No-op if already in plain text mode.
+     * When already plain, only runs highlighter setup once per stretch (see [plainHighlighterConfigured]),
+     * unless [refreshPlainTextHighlighter] is used (e.g. settings change).
      */
     private fun applyPlainTextMode() {
-        if (!isJsonMode) return
-        isJsonMode = false
+        val wasJson = isJsonMode
+        if (wasJson) {
+            isJsonMode = false
+            clearFoldRegions()
+        } else if (plainHighlighterConfigured) {
+            return
+        }
+        applyPlainTextHighlighterInternal()
+        plainHighlighterConfigured = true
+    }
+
+    /**
+     * Re-applies plain-text highlighter (keyword vs bare plain) when settings change while in plain mode.
+     */
+    fun refreshPlainTextHighlighter() {
+        if (isJsonMode) return
+        applyPlainTextHighlighterInternal()
+        plainHighlighterConfigured = true
+    }
+
+    private fun applyPlainTextHighlighterInternal() {
         val edEx = editor as? EditorEx ?: return
+        val scheme = EditorColorsManager.getInstance().globalScheme
         try {
-            val plainFileType = Class.forName("com.intellij.openapi.fileTypes.PlainTextFileType")
-                .getDeclaredField("INSTANCE").get(null) as FileType
-            edEx.highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(
-                plainFileType,
-                EditorColorsManager.getInstance().globalScheme,
-                null
-            )
-        } catch (_: Exception) {
-            // Fallback: create a bare highlighter with a null SyntaxHighlighter
-            try {
-                val nullHighlighter: com.intellij.openapi.fileTypes.SyntaxHighlighter? = null
+            if (JsonViewerUiSettings.getInstance().plainTextKeywordHighlightingEnabled()) {
                 edEx.highlighter = EditorHighlighterFactory.getInstance()
-                    .createEditorHighlighter(nullHighlighter, EditorColorsManager.getInstance().globalScheme)
+                    .createEditorHighlighter(PlainTextKeywordsSyntaxHighlighter(), scheme)
+            } else {
+                val plainFileType = Class.forName("com.intellij.openapi.fileTypes.PlainTextFileType")
+                    .getDeclaredField("INSTANCE").get(null) as FileType
+                edEx.highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(
+                    plainFileType,
+                    scheme,
+                    null,
+                )
+            }
+        } catch (_: Exception) {
+            try {
+                val plainFileType = Class.forName("com.intellij.openapi.fileTypes.PlainTextFileType")
+                    .getDeclaredField("INSTANCE").get(null) as FileType
+                edEx.highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(
+                    plainFileType,
+                    scheme,
+                    null,
+                )
             } catch (_: Exception) {
-                LOG.debug("Could not reset to plain text highlighter")
+                try {
+                    val nullHighlighter: com.intellij.openapi.fileTypes.SyntaxHighlighter? = null
+                    edEx.highlighter = EditorHighlighterFactory.getInstance()
+                        .createEditorHighlighter(nullHighlighter, scheme)
+                } catch (_: Exception) {
+                    LOG.debug("Could not apply plain text highlighter")
+                }
             }
         }
-        clearFoldRegions()
     }
 
     // ── Fold regions ─────────────────────────────────────────────────────────
