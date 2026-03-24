@@ -16,11 +16,19 @@
           <li><b>Paste / Copy</b> — quick clipboard actions in the toolbar</li>
           <li><b>Main editor</b> — open JSON Notes in the editor area (Tools menu)</li>
           <li><b>Keyboard shortcuts</b> — optional keybindings for new tab, open with new tab, and editor actions; shortcut reference in JSON Notes settings</li>
+          <li><b>Plain text</b> — optional keyword highlighting for common programming tokens; word-occurrence highlights in the text editor</li>
         </ul>
         <p>Inspired by <a href="https://jsonviewer.stack.hu/">Online JSON Viewer (jsonviewer.stack.hu)</a>.</p>
     ]]></description>
 
     <change-notes><![CDATA[
+        <p><b>1.0.5</b> (2026-03-25)</p>
+        <ul>
+            <li><b>Plain text</b> — optional <strong>keyword highlighting</strong> for common programming keywords (colors per language family); toggle in JSON Notes settings.</li>
+            <li><b>Text editor</b> — <strong>word occurrence highlighting</strong> for the word at the caret or selection (debounced updates).</li>
+            <li><b>Layout</b> — refined toolbar and viewer spacing; optional <strong>side toolbar</strong>; consistent chrome and borders.</li>
+            <li><b>Tabs &amp; focus</b> — tab shortcuts avoid stealing focus from editable text and the notes search field; improved next/previous tab behavior.</li>
+        </ul>
         <p><b>1.0.4</b> (2026-03-23)</p>
         <ul>
             <li><b>Keyboard shortcuts</b> — default bindings where applicable: <strong>Open JSON Notes with New Tab</strong> (Ctrl+Shift+Alt+N), <strong>New JSON Notes Tab</strong> (Ctrl+Shift+Alt+T), <strong>Open JSON Notes in Editor</strong> (Ctrl+Shift+Alt+J), <strong>Open in Editor with New Tab</strong> on macOS (⌥⌘J). <strong>Next</strong> / <strong>Previous</strong> tab actions are in Keymap (search &quot;JSON Notes&quot;) with no default shortcut.</li>

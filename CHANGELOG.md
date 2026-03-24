@@ -2,6 +2,19 @@
 
 All notable changes to **JSON Notes** are documented here. The version in `build.gradle.kts` and the `<change-notes>` in `plugin.xml` should stay aligned with Marketplace releases.
 
+## [1.0.5] — 2026-03-25
+
+### Added
+- **Plain text keyword highlighting** — Optional syntax-style highlighting for common keywords in plain text (language-oriented colors), configurable in JSON Notes settings (`PlainTextKeywordsSyntaxHighlighter`, `JsonViewerUiSettings`).
+- **Word occurrence highlighting** — Highlights other occurrences of the word at the caret or selection in the text editor, with debounced updates for responsiveness (`TextContentPanel`).
+
+### Changed
+- **UI layout** — Centralized chrome tokens (`JsonViewerChrome`); consistent padding and borders in toolbar, search, and viewer areas; optional **side toolbar** display in settings.
+- **Tab actions & focus** — JSON Notes tab shortcuts respect focus in editable text and the search field; improved next/previous tab visibility and keyboard handling (`JsonNotesShortcutActions`, `JsonViewerPanel`).
+
+### Development
+- Commits since tag `v1.0.4`: `49358aa`, `63724d1`, `d97d321`, `90dee29`.
+
 ## [1.0.4] — 2026-03-23
 
 ### Added
@@ -50,6 +63,7 @@ All notable changes to **JSON Notes** are documented here. The version in `build
 
 - Initial public feature set: format, minify, tree view, tabs, Settings Sync, search, property grid, and related tooling.
 
+[1.0.5]: https://github.com/Aditya1942/json-viewer-intellij-plugin/releases
 [1.0.4]: https://github.com/Aditya1942/json-viewer-intellij-plugin/releases
 [1.0.3]: https://github.com/Aditya1942/json-viewer-intellij-plugin/releases
 [1.0.2]: https://github.com/Aditya1942/json-viewer-intellij-plugin/releases

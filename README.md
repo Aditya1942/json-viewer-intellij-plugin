@@ -4,13 +4,14 @@ A **JSON viewer and notes** plugin for **all JetBrains IDEs** (IntelliJ IDEA, Py
 
 ---
 
-## What’s new in 1.0.4
+## What’s new in 1.0.5
 
-- **Keyboard shortcuts** — Default bindings where set: **Open JSON Notes with New Tab** (**Ctrl+Shift+Alt+N**), **New JSON Notes Tab** (**Ctrl+Shift+Alt+T**), **Open JSON Notes in Editor** (**Ctrl+Shift+Alt+J**), **Open in Editor with New Tab** on macOS (**⌥⌘J**). **Next** / **Previous** tab are in **Settings → Keymap** (search “JSON Notes”) with no default shortcut.
-- **Actions** — New tab, next/previous tab, open with new tab, and open editor with new tab work from the focused JSON Notes UI (tool window or main editor).
-- **Settings** — A **Keyboard shortcuts** table lists JSON Notes actions and shows live shortcuts from your active keymap.
+- **Plain text keyword highlighting** — Optional colors for common programming keywords in plain text; enable in JSON Notes settings.
+- **Word occurrences** — Highlights other occurrences of the word at the caret or selection in the text editor.
+- **Layout** — Refined spacing and borders; optional **side toolbar** in settings.
+- **Tabs & focus** — Tab shortcuts cooperate with editable text and the search field; improved next/previous tab behavior.
 
-Earlier **1.0.3** highlights: main-editor **Undo / Redo** with **TextEditor** integration, tab close confirmation, debounced search, font settings, and stability fixes — see [CHANGELOG.md](CHANGELOG.md).
+Earlier **1.0.4** highlights: keyboard shortcuts, tab actions, and the **Keyboard shortcuts** table in settings — see [CHANGELOG.md](CHANGELOG.md).
 
 Full history: [CHANGELOG.md](CHANGELOG.md). Marketplace **What’s new** matches `<change-notes>` in `plugin.xml`.
 
