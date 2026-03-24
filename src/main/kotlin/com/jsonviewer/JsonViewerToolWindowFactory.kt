@@ -195,11 +195,8 @@ class JsonViewerPanel(
         addActionListener { enterNotesListSearchMode() }
     }
     private val notesListTopBar = JPanel(CardLayout()).apply {
-        border = JsonViewerChrome.bottomToolbarBorder()
-        val h = JsonViewerChrome.toolbarRowHeight()
-        minimumSize = Dimension(0, h)
-        preferredSize = Dimension(0, h)
-        maximumSize = Dimension(Int.MAX_VALUE, h)
+        border = JBUI.Borders.customLine(ideSeparatorColor(), 0, 0, 1, 0)
+        minimumSize = Dimension(0, JBUI.scale(36))
     }
 
     // ── Shared search bar ──
@@ -385,12 +382,7 @@ class JsonViewerPanel(
         val notesListHeaderDefault = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
             isOpaque = false
-            border = JBUI.Borders.empty(
-                JsonViewerChrome.overlayHeaderVerticalPadding(),
-                JsonViewerChrome.horizontalInset(),
-                JsonViewerChrome.overlayHeaderVerticalPadding(),
-                JsonViewerChrome.horizontalInset(),
-            )
+            border = JBUI.Borders.empty(4, JBUI.scale(6), 4, JBUI.scale(6))
             add(notesListBackBtn.apply { alignmentY = Component.CENTER_ALIGNMENT })
             add(Box.createHorizontalStrut(JBUI.scale(8)))
             add(notesListTitleLabel)
@@ -399,22 +391,14 @@ class JsonViewerPanel(
         }
         val notesListHeaderSearch = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
-            border = JBUI.Borders.empty(
-                JsonViewerChrome.overlayHeaderVerticalPadding(),
-                JsonViewerChrome.horizontalInset(),
-                JsonViewerChrome.overlayHeaderVerticalPadding(),
-                JsonViewerChrome.horizontalInset(),
-            )
+            border = JBUI.Borders.empty(4, JBUI.scale(8), 4, JBUI.scale(8))
             isOpaque = false
             add(notesListSearchBackBtn.apply { alignmentY = Component.CENTER_ALIGNMENT })
             add(Box.createHorizontalStrut(JBUI.scale(8)))
             add(
                 notesListSearchField.apply {
                     alignmentY = Component.CENTER_ALIGNMENT
-                    maximumSize = Dimension(
-                        Int.MAX_VALUE,
-                        JsonViewerChrome.toolbarRowHeight() - 2 * JsonViewerChrome.overlayHeaderVerticalPadding(),
-                    )
+                    maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(32))
                 }
             )
             add(Box.createHorizontalStrut(JBUI.scale(8)))
@@ -430,6 +414,7 @@ class JsonViewerPanel(
         }
 
         val notesListBody = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.emptyLeft(JsonViewerChrome.contentPanelHorizontalInset())
             add(notesListScroll, BorderLayout.CENTER)
         }
 
@@ -762,6 +747,90 @@ class JsonViewerPanel(
 
         applyUiSettingsToEditor()
         applyHeaderToolbarVisibility()
+
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher { ev ->
+            consumeNotesListSearchNavigationKey(ev)
+        }
+    }
+
+    /**
+     * IDE key processing can deliver printable keys to this field but not Backspace / arrows (KeyListeners
+     * never see them). Consuming here and mutating the document matches normal JTextField behavior.
+     */
+    private fun consumeNotesListSearchNavigationKey(ev: KeyEvent): Boolean {
+        if (ev.id != KeyEvent.KEY_PRESSED) return false
+        if (!notesListOverlayOpen || !notesListSearchMode) return false
+        if (!notesListSearchField.hasFocus()) return false
+        val mod = ev.modifiersEx
+        if (mod and (InputEvent.META_DOWN_MASK or InputEvent.CTRL_DOWN_MASK or InputEvent.ALT_DOWN_MASK) != 0) {
+            return false
+        }
+        val f = notesListSearchField
+        val doc = f.document
+        val len = doc.length
+        val selStart = f.selectionStart
+        val selEnd = f.selectionEnd
+        val caret = f.caretPosition
+        try {
+            when (ev.keyCode) {
+                KeyEvent.VK_BACK_SPACE -> {
+                    if (selStart != selEnd) {
+                        doc.remove(selStart, selEnd - selStart)
+                        f.caretPosition = selStart
+                    } else if (caret > 0) {
+                        doc.remove(caret - 1, 1)
+                        f.caretPosition = caret - 1
+                    }
+                    ev.consume()
+                    return true
+                }
+                KeyEvent.VK_DELETE -> {
+                    if (selStart != selEnd) {
+                        doc.remove(selStart, selEnd - selStart)
+                        f.caretPosition = selStart
+                    } else if (caret < len) {
+                        doc.remove(caret, 1)
+                    }
+                    ev.consume()
+                    return true
+                }
+                KeyEvent.VK_LEFT -> {
+                    if (ev.isShiftDown) return false
+                    if (selStart != selEnd) {
+                        f.caretPosition = selStart
+                    } else if (caret > 0) {
+                        f.caretPosition = caret - 1
+                    }
+                    ev.consume()
+                    return true
+                }
+                KeyEvent.VK_RIGHT -> {
+                    if (ev.isShiftDown) return false
+                    if (selStart != selEnd) {
+                        f.caretPosition = selEnd
+                    } else if (caret < len) {
+                        f.caretPosition = caret + 1
+                    }
+                    ev.consume()
+                    return true
+                }
+                KeyEvent.VK_UP -> {
+                    if (ev.isShiftDown) return false
+                    f.caretPosition = 0
+                    ev.consume()
+                    return true
+                }
+                KeyEvent.VK_DOWN -> {
+                    if (ev.isShiftDown) return false
+                    f.caretPosition = len
+                    ev.consume()
+                    return true
+                }
+                else -> return false
+            }
+        } catch (_: Exception) {
+            return false
+        }
     }
 
     // ── Tab loading / sync ───────────────────────────────────────────────────

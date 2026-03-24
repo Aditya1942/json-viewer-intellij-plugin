@@ -13,6 +13,12 @@ object JsonViewerChrome {
     /** Horizontal padding inside chrome rows (overlay headers, search, etc.). */
     fun horizontalInset(): Int = JBUI.scale(8)
 
+    /**
+     * Horizontal inset for full-page overlay body content (settings, notes list) and overlay headers.
+     * Same value as the main editor search bar and viewer chrome (see SearchPanel, ViewerContentPanel).
+     */
+    fun contentPanelHorizontalInset(): Int = horizontalInset()
+
     /** Small gap before the tab title only (top chrome left column). */
     fun tabTitleLeadingInset(): Int = JBUI.scale(4)
 

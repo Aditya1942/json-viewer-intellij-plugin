@@ -7,6 +7,8 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowManager
+import java.awt.KeyboardFocusManager
+import javax.swing.text.JTextComponent
 
 /**
  * Adds a new JSON Notes tab. Resolves the focused or selected [JsonViewerPanel]; if none exists,
@@ -52,7 +54,7 @@ class JsonNotesOpenWithNewTabAction : AnAction() {
 
 class JsonNotesNextTabAction : AnAction() {
 
-    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
@@ -60,13 +62,23 @@ class JsonNotesNextTabAction : AnAction() {
     }
 
     override fun update(e: AnActionEvent) {
-        e.presentation.isEnabledAndVisible = e.project != null
+        val project = e.project
+        if (project == null) {
+            e.presentation.isEnabledAndVisible = false
+            return
+        }
+        if (focusInEditableTextComponent()) {
+            e.presentation.isEnabled = false
+            e.presentation.isVisible = true
+            return
+        }
+        e.presentation.isEnabledAndVisible = true
     }
 }
 
 class JsonNotesPrevTabAction : AnAction() {
 
-    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
@@ -74,8 +86,24 @@ class JsonNotesPrevTabAction : AnAction() {
     }
 
     override fun update(e: AnActionEvent) {
-        e.presentation.isEnabledAndVisible = e.project != null
+        val project = e.project
+        if (project == null) {
+            e.presentation.isEnabledAndVisible = false
+            return
+        }
+        if (focusInEditableTextComponent()) {
+            e.presentation.isEnabled = false
+            e.presentation.isVisible = true
+            return
+        }
+        e.presentation.isEnabledAndVisible = true
     }
+}
+
+/** When true, JSON Notes tab shortcuts must not run — keymap would steal keys (e.g. Backspace) from text fields. */
+private fun focusInEditableTextComponent(): Boolean {
+    val fo = KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
+    return fo is JTextComponent && fo.isEditable
 }
 
 private fun withToolWindowPanelOrShow(project: Project, block: (JsonViewerPanel) -> Unit) {
